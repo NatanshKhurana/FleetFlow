@@ -33,11 +33,13 @@ test('overview renders the shared shell, initial loading state, and skip-to-main
   assert.match(html, /aria-current="page"/);
 });
 
-test('Agents is clearly unavailable and does not link to an unfinished route', () => {
-  const html = render(App);
-  assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="Agents, coming soon"/);
-  assert.doesNotMatch(html, /href="\/agents/);
-  assert.doesNotMatch(html, /<table\b|<form\b/);
+test('Agents route uses the shared shell with active navigation, real filters, and initial loading', () => {
+  const html = render(App, {}, '/agents');
+  assert.match(html, /<h1[^>]*>Agents<\/h1>/);
+  assert.match(html, /aria-current="page"[^>]*href="\/agents"/);
+  assert.match(html, /Loading agents/);
+  assert.match(html, /role="search"/);
+  assert.doesNotMatch(html, /Agents, coming soon/);
 });
 
 test('collapsed mobile navigation has a labelled control and hidden contents', () => {

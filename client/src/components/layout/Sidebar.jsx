@@ -13,11 +13,13 @@ export function DashboardNavigation({ onNavigate }) {
         <LayoutDashboard size={19} strokeWidth={1.8} aria-hidden="true" />
         Overview
       </NavLink>
-      <button type="button" disabled aria-label="Agents, coming soon" className="flex min-h-11 w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-500">
+      <NavLink to="/agents" end onClick={onNavigate} className={({ isActive }) =>
+        'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ' +
+        (isActive ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950')
+      }>
         <UsersRound size={19} strokeWidth={1.8} aria-hidden="true" />
         <span>Agents</span>
-        <span className="ml-auto rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium">Soon</span>
-      </button>
+      </NavLink>
     </nav>
   );
 }

@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-20 are **COMPLETE** and Steps 21-30 remain **PENDING**. Step 19 is committed as `f90d653`; earlier steps retain their existing commits. Step 20 passed all 19 frontend tests, production build, syntax checks, and live read-only API verification through the Vite proxy. Earlier live verification used a process-only port 7777 override; the local proxy default is now aligned with normal backend startup at port 5000, with API_PROXY_TARGET still configurable. All 19 frontend tests and the production build passed again after alignment; no private environment file was read or modified during that follow-up. Full pagination metadata supplies total/active/inactive counts and the existing newest-first list supplies recent registrations. Three cached requests are not an atomic real-time snapshot; limitations are documented in README.md. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-21 are **COMPLETE** and Steps 22-30 remain **PENDING**. Step 20 is committed as `b5d958e`; earlier steps retain their existing commits. Step 21 implements the read-only Agents table with server-backed search/status/service-area filters and pagination. It passed 22 focused tests, all 36 frontend tests, production build, syntax checks, and Git checks. View/Edit/Delete controls remain explicitly disabled pending the later detail and mutation flows, as requested. Live API verification was skipped because no backend was running; browser interaction/viewport checks were not performed. The backend was not started, changed, or reconfigured, and server/.env was not accessed. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -191,7 +191,7 @@ Acceptance criteria: Dashboard statistics come from real API data, not hardcoded
 Commit: feat: add agent dashboard overview
 
 ### Step 21 — Build All Agents page
-Status: PENDING
+Status: COMPLETE
 
 Objective: Create the agent table with search, filters, pagination, and View/Edit/Delete actions.
 

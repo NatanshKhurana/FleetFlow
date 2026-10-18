@@ -1,6 +1,7 @@
 import { Link, Route, Routes } from 'react-router';
 import DashboardLayout from './components/layout/DashboardLayout.jsx';
 import OverviewPage from './pages/OverviewPage.jsx';
+import AgentsPage from './pages/AgentsPage.jsx';
 
 function NotFoundPage() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
     <Routes>
       <Route element={<DashboardLayout />}>
         <Route index element={<OverviewPage />} />
+        <Route path="agents" element={<AgentsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

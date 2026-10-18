@@ -7,7 +7,8 @@ export default function DashboardLayout() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const menuButtonRef = useRef(null);
   const { pathname } = useLocation();
-  const title = pathname === '/' ? 'Overview' : 'Page not found';
+  const titles = { '/': 'Overview', '/agents': 'Agents' };
+  const title = titles[pathname.replace(/\/$/, '') || '/'] || 'Page not found';
 
   function closeNavigation() {
     setNavigationOpen(false);
