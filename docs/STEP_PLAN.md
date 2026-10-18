@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-12 are **COMPLETE** after verification; Steps 13-30 remain **PENDING**. Steps 1-11 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, and `a40ea0e`. Step 12's 2 new tests and all 71 server tests passed. Automated HTTP integration covers all five endpoints with mocked database operations. An optional isolated MongoDB CRUD script was added; its configuration guard and syntax passed, but live execution was not performed. Step 12 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-13 are **COMPLETE** after verification; Steps 14-30 remain **PENDING**. Steps 1-12 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, `a40ea0e`, and `c57405e`. Step 13's 27 focused tests and all 87 server tests passed. Redis connectivity and lifecycle were verified with mocks; no live Redis check was performed. The optional PING script's configuration guard and syntax passed. Step 13 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -117,7 +117,7 @@ Commit: test: verify agent CRUD API flows
 ## Phase 3: Redis Caching
 
 ### Step 13 — Connect Redis
-Status: PENDING
+Status: COMPLETE
 
 Objective: Configure the Redis client and connection lifecycle.
 

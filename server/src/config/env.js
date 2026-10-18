@@ -31,7 +31,7 @@ const mongoSchema = z.string({ error: mongoMessage }).trim().min(1, mongoMessage
     }
   }, mongoMessage);
 
-// Redis stays optional until its integration step.
+// Redis remains optional because cache availability must not block the API.
 const optionalServiceValue = z.string().trim().optional()
   .transform((value) => value || undefined);
 

@@ -1,17 +1,33 @@
 import app from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/db.js';
+import { redisConnection } from './config/redis.js';
 
 // Tests may supply controlled database functions; normal startup uses Mongoose.
 export async function startServer(config, {
   connect = connectDatabase,
   disconnect = disconnectDatabase,
+  redis = redisConnection,
   application = app,
   signal,
 } = {}) {
   let server;
 
+  async function disconnectServices() {
+    try {
+      await redis.disconnect();
+    } finally {
+      await disconnect();
+    }
+  }
+
   try {
     await connect(config.MONGODB_URI);
+    if (signal?.aborted) {
+      throw new Error('Startup was cancelled.');
+    }
+
+    // Redis is optional: its bounded connection attempt returns null on failure.
+    await redis.connect(config.REDIS_URL);
     if (signal?.aborted) {
       throw new Error('Startup was cancelled.');
     }
@@ -25,7 +41,7 @@ export async function startServer(config, {
       });
     });
   } catch (error) {
-    await disconnect();
+    await disconnectServices();
     throw error;
   }
 
@@ -45,7 +61,7 @@ export async function startServer(config, {
             server.closeIdleConnections();
           });
         } finally {
-          await disconnect();
+          await disconnectServices();
         }
       })();
     }

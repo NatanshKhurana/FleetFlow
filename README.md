@@ -17,12 +17,13 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 9 is COMPLETE and committed locally as `31671be` (`feat: add get agent by ID API`).
 - Step 10 is COMPLETE and committed locally as `7e699d9` (`feat: add update agent API`).
 - Step 11 is COMPLETE and committed locally as `a40ea0e` (`feat: add delete agent API`).
-- Step 12 is COMPLETE after its 2 new tests and all 71 server tests passed. Changes remain uncommitted for review; the optional live MongoDB script has not been run.
-- Steps 13-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 12 is COMPLETE and committed locally as `c57405e` (`test: strengthen CRUD API coverage`). Its optional live MongoDB script has not been run.
+- Step 13 is COMPLETE after 27 focused tests and all 87 server tests passed. Changes remain uncommitted for review; live Redis connectivity has not been tested.
+- Steps 14-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
-- Express, dotenv, Zod, and Mongoose are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. The five agent API operations are implemented; there is no authentication or Redis connection. Normal tests use mocked database operations; live CRUD persistence has not been checked in Step 12.
-- The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional until Step 13.
+- Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
+- `client/` remains empty. Redis connection management is available, but no endpoint uses caching yet. There is no authentication. Normal tests use mocked services; live Redis connectivity has not been checked in Step 13.
+- The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
 
@@ -76,7 +77,8 @@ FleetFlow/
 |   |   |   `-- agentSchemas.js     Create/update bodies, list query, and ID params
 |   |   |-- config/
 |   |   |   |-- env.js       Loads and validates backend configuration
-|   |   |   `-- db.js        Mongoose connection and safe lifecycle messages
+|   |   |   |-- db.js       Mongoose connection and safe lifecycle messages
+|   |   |   `-- redis.js    Optional shared Redis connection and bounded cleanup
 |   |   |-- models/
 |   |   |   `-- Agent.js     Delivery Agent schema and exported model
 |   |   |-- middleware/
@@ -87,6 +89,7 @@ FleetFlow/
 |   |-- test/
 |       |-- env.test.js      Configuration regression tests
 |       |-- db.test.js       Mocked database connection tests
+|       |-- redis.test.js    Mocked Redis configuration and lifecycle tests
 |       |-- agent.test.js    Agent schema validation and index definitions
 |       |-- create-agent.test.js    Mocked create-agent endpoint tests
 |       |-- list-agents.test.js     Mocked list query and pagination tests
@@ -101,7 +104,8 @@ FleetFlow/
 |   |   `-- crudFlow.js      HTTP assertions shared by mocked and optional real checks
 |   `-- scripts/
 |       |-- verify-create-agent.js  Earlier opt-in create persistence check
-|       `-- verify-crud.js   Opt-in full CRUD check; process configuration only
+|       |-- verify-crud.js   Opt-in full CRUD check; process configuration only
+|       `-- verify-redis.js  Opt-in Redis PING; process configuration only
 |-- docs/
 |   |-- DEVELOPMENT_RULES.md Permanent development rules
 |   `-- STEP_PLAN.md         Roadmap and acceptance criteria
@@ -130,11 +134,11 @@ npm run dev
 
 `cd server` selects the backend package. `npm ci` installs the exact versions recorded in `package-lock.json`. The PowerShell `if` command copies the safe template only if `.env` does not already exist, preserving any local settings. `npm run dev` runs `node --watch src/server.js`, which starts the API and restarts it when source files change. Stop it with Ctrl+C. To run without automatic restarts, use `npm start` (`node src/server.js`). Run `npm test` (`node --test`) for all server tests, or `node --test test/request-errors.test.js` for just the request/error tests. Neither test command requires a live database or private environment configuration. No build command is needed for this JavaScript backend.
 
-Direct dependencies are Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, and Mongoose 9.11.2, with exact resolved versions in the lockfile. Express serves requests, dotenv reads the environment file, Zod checks configuration, and Mongoose manages MongoDB connectivity. Node provides watch mode and tests, so no nodemon or test dependency is needed. Step 4 used `npm install mongoose` inside `server/`; `npm ci` above is the reproducible setup command for an existing checkout.
+Direct dependencies are Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, Mongoose 9.11.2, and redis 6.3.0 (node-redis), with exact resolved versions in the lockfile. Express serves requests, dotenv reads the environment file, Zod checks configuration, Mongoose manages MongoDB connectivity, and node-redis provides the Redis client. Node provides watch mode and tests, so no nodemon or test dependency is needed. Step 13 used `npm install redis` inside `server/`; `npm ci` above is the reproducible setup command for an existing checkout.
 
 ## MongoDB Atlas prerequisites and startup
 
-MongoDB is FleetFlow's persistent database: it retains created agents between server restarts. Redis will be introduced later for caching; it is not required or connected now. The create route imports the existing Agent model. Mongoose can initialize its collection and indexes after connection; the controller also waits for `Agent.init()` before writing so duplicate protection is ready.
+MongoDB is FleetFlow's persistent database: it retains created agents between server restarts. Redis is optional and connects only when configured; endpoint caching starts in later steps. The create route imports the existing Agent model. Mongoose can initialize its collection and indexes after connection; the controller also waits for `Agent.init()` before writing so duplicate protection is ready.
 
 Before starting, have an active Atlas cluster, a database user with access to the intended FleetFlow database, and your current machine's IP permitted in Atlas Network Access. A database user is separate from an Atlas website account. Obtain the Node.js driver connection URI privately from Atlas, fill in the database user's credentials and application database name locally, and save it as `MONGODB_URI` in `server/.env`. Encode special characters in credentials as required by the URI format. Do not paste the URI into chat, logs, documentation, or Git. Existing `.env` files must be preserved; the guarded PowerShell copy above only creates one when absent.
 
@@ -142,15 +146,16 @@ Startup runs in this order:
 
 1. Load `server/.env` and validate PORT and MongoDB URI syntax.
 2. Call `connectDatabase()` and wait for Mongoose to connect to Atlas.
-3. Only then open the Express HTTP listener on the validated port.
+3. If `REDIS_URL` is supplied, attempt Redis once with a three-second connection deadline. Missing or failed Redis configuration does not stop startup.
+4. Open the Express HTTP listener on the validated port, unless shutdown was requested during either connection phase.
 
 `mongoose.connect()` starts the network connection and authentication process. It returns a Promise because this work finishes later; `await` pauses startup until the Promise succeeds or fails. The connection module reuses an established connection or waits for one already opening, avoiding duplicate connections. See the [Mongoose connection guide](https://mongoosejs.com/docs/connections.html).
 
-On success, expect `MongoDB connected successfully.` followed by `FleetFlow API is running at http://localhost:<port>`. Neither message includes the URI or credentials. Then request `GET /api/health` as shown below. The unchanged health response confirms HTTP startup completed after database connection; it is not an ongoing database readiness probe.
+On success, expect `MongoDB connected successfully.`, a fixed Redis connected/skipped/failed message, then `FleetFlow API is running at http://localhost:<port>`. None includes a connection URI or credentials. Then request `GET /api/health` as shown below. The unchanged health response confirms HTTP startup completed after database connection; it is not an ongoing database or Redis readiness probe.
 
 If connection fails, startup logs safe instructions, closes the database client, exits unsuccessfully, and leaves HTTP closed. The connection uses a 30-second server-selection timeout, without a custom retry system. Connection error and disconnected events emit fixed messages without driver details. Mongoose retains its normal connection monitoring behavior.
 
-Ctrl+C (SIGINT) or SIGTERM starts shutdown: stop accepting HTTP requests, let active requests finish, then disconnect Mongoose. Repeated cleanup requests share one operation. Shutdown during database startup cancels HTTP startup. A ten-second deadline forces an unsuccessful exit if cleanup hangs; cleanup failures also exit unsuccessfully.
+Ctrl+C (SIGINT) or SIGTERM starts shutdown: stop accepting HTTP requests, let active requests finish, close Redis, then disconnect Mongoose. Repeated cleanup requests share one operation. Shutdown during MongoDB or Redis startup cancels HTTP startup. Redis close gets a one-second grace period before immediate destruction; an in-progress Redis connection is bounded by its three-second deadline. MongoDB cleanup still runs if Redis cleanup fails. The existing ten-second overall shutdown deadline remains in place; cleanup failures exit unsuccessfully.
 
 For connection trouble, check the private database username/password, database permissions, current IP access-list entry, cluster availability, DNS resolution, and firewall/network access to Atlas. Restart after fixing local configuration. Do not disable TLS checks or expose credentials to diagnose errors. The [Atlas connection troubleshooting guide](https://www.mongodb.com/docs/atlas/troubleshoot-connection/) covers authentication, IP access, and network problems.
 
@@ -185,7 +190,7 @@ Edit `server/.env` after copying `server/.env.example` only when needed. The tem
 | --- | --- |
 | `PORT` | Required TCP port. Must contain decimal digits representing a whole number from 1 through 65535. It is converted from text to a number before the server listens. There is no silent fallback for a missing or invalid value. |
 | `MONGODB_URI` | Required non-empty private MongoDB connection URI. Whitespace is trimmed and MongoDB's driver parser checks URI syntax, including standard and SRV formats, without connecting. Missing, blank, placeholder, and malformed values are rejected without printing them. Valid syntax does not prove that credentials or network access work; startup checks the real connection. |
-| `REDIS_URL` | Optional private configuration reserved for Redis integration in Step 13. Leave blank now. Blank values become `undefined`; nonblank values are trimmed strings. Connection-string validation and connections are deferred to Step 13. |
+| `REDIS_URL` | Optional private `redis://` or `rediss://` connection URL; `rediss` uses TLS. Missing/blank skips Redis; nonblank text is trimmed and passed to the client. Invalid URL syntax or connection failures produce fixed warnings and leave Redis unavailable without preventing HTTP startup. Configure real values privately. |
 
 `src/config/env.js` uses a path relative to its own location to load `server/.env`, even when Node starts from the repository root. Existing process variables take precedence over values in the file. A missing file is allowed when the process environment supplies valid `PORT` and `MONGODB_URI`; an unreadable file fails with a readable error. The loader validates before the HTTP listener starts and exports `env` for other modules. Only expected fields are exported. Error messages do not print submitted values or credentials.
 
@@ -195,6 +200,33 @@ The root `.gitignore` already excludes `.env` and `.env.*` in subfolders and per
 
 If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` in `server/.env`: blank values, words, fractions, zero, negative values, and values above 65535 are rejected. A missing value produces the same instruction to set `PORT`. Existing PowerShell variables override the file. To remove unwanted overrides for the current terminal, use `Remove-Item Env:PORT -ErrorAction SilentlyContinue` or `Remove-Item Env:MONGODB_URI -ErrorAction SilentlyContinue`, without printing secret values. Restart the server after changing `.env`; watch mode tracks source files, so do not rely on it to reload the environment file. If a MongoDB syntax error occurs, replace the placeholder privately and check URI formatting; for connection failures use the Atlas troubleshooting guidance above. If the HTTP port is occupied, choose another free valid port or stop the conflicting process. For a file-read error, check permissions. Only Redis may remain absent or blank in this step.
 
+## Redis connection management
+
+`server/src/config/redis.js` exports `connectRedis(url)`, `disconnectRedis()`, and `getRedisClient()`. Startup passes `env.REDIS_URL` to the connection function; this module never loads `.env` itself. `getRedisClient()` returns the shared ready client or `null` when unavailable. Later caching steps can reuse that client. Importing the module opens no connection, and Step 13 does not read/write cache entries or change any endpoint.
+
+`connectRedis()` creates one client using node-redis. Concurrent connection requests share an attempt; calls after success reuse the ready client. Missing configuration returns `null` without creating a client. A configured attempt has a three-second socket timeout and a three-second overall deadline covering DNS/authentication/handshake work. URL parsing and connection failures return `null` with fixed messages. Raw errors, passwords, hostnames, and URLs are never logged.
+
+Automatic reconnection is disabled with `socket.reconnectStrategy: false`, and offline command queuing is disabled. A startup or runtime outage leaves Redis unavailable while MongoDB-backed requests remain usable. The ready-client getter returns `null` after a connection loss. There is no background recovery loop: restart the backend or explicitly call `connectRedis()` again after restoring the service. No request currently uses Redis, and a later caching step must handle an unavailable client.
+
+`disconnectRedis()` shares repeated cleanup calls. It uses `client.close()` to close a ready connection, then `client.destroy()` if graceful close fails or exceeds one second. A connecting client is destroyed and its bounded connection attempt is allowed to settle. Internal timers are cleared. `createRedisConnection()` makes an independent manager for tests, accepting a fake client factory, logger, and shorter test deadlines; production uses the shared `redisConnection`. The [node-redis documentation](https://github.com/redis/node-redis) describes client lifecycle methods; its [configuration reference](https://github.com/redis/node-redis/blob/master/docs/client-configuration.md) describes reconnect and offline-queue options.
+
+Run these commands in `server/`:
+
+```powershell
+node --test test/redis.test.js test/startup.test.js test/env.test.js test/integration-script.test.js
+npm test
+```
+
+The Redis tests use fake clients and do not require a Redis service. They cover absent configuration, client options, success/reuse, safe failures, connection and close deadlines, concurrent/idempotent cleanup, runtime loss, and shutdown during connection. Startup tests verify MongoDB gating, health responses after Redis failure, cancellation, and cleanup of both services. Environment tests use fake fixture files, never the private `server/.env`.
+
+For an optional real connectivity check, configure `FLEETFLOW_TEST_REDIS_URL` privately in the process environment, then run:
+
+```powershell
+node scripts/verify-redis.js
+```
+
+This separate script never loads `.env` or falls back to `REDIS_URL`. It connects, requires `PING` to return `PONG`, and closes the client. It writes no data and has an eight-second overall deadline. The normal suite checks its missing-configuration guard without connecting. **No live Redis check was run in Step 13**; only mocked lifecycle checks, the real client's malformed-URL rejection, and the script guard were verified. If using the optional script, ensure the Redis user permits PING and TLS/credentials are configured privately.
+
 ## Backend files and request flow
 
 - `server/package.json` describes the backend, declares its dependencies, and defines the `dev`, `start`, and `test` commands. `private: true` prevents accidental npm publication; `type: module` enables JavaScript `import` and `export`.
@@ -202,6 +234,7 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/.env.example` is the shareable backend template; the local `.env` copy is ignored by Git.
 - `server/src/config/env.js` loads the file, then uses a Zod schema to describe allowed configuration. `safeParse()` returns validated data or validation issues. The port schema checks decimal text, converts it with `Number`, and enforces the TCP range. MongoDB URI syntax is required and checked by constructing a driver client without opening it. Optional Redis blanks normalize to `undefined`. Invalid configuration throws a readable error before the server can listen. The module exports only the validated `env` object.
 - `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
+- `server/src/config/redis.js` manages the optional shared Redis client with connection/close deadlines and safe fixed logs. Its factory supports isolated tests without a live service.
 - `server/src/app.js` creates and exports the Express application without opening a network port. Middleware runs in order: `express.json()`, health, the `/api/agents` router, the unchanged JSON 404 fallback, and the existing `errorHandler` last.
 - `server/src/routes/agentRoutes.js` defines `POST /`, `GET /`, `GET /:id`, `PATCH /:id`, and `DELETE /:id`, mounted under `/api/agents`. All use the existing `validateRequest()` before their controller: `body` for create, `query` for list, `params` for detail/delete, and both `params` and `body` for update.
 - `server/src/validation/agentSchemas.js` defines create/list validation and `agentParamsSchema`, which requires exactly 24 hexadecimal characters. `updateAgentSchema` picks only editable fields from the create schema, makes them optional, removes undefined values, and requires at least one supplied value. It preserves strict rejection of unknown keys and existing normalization without adding defaults.
@@ -210,10 +243,11 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/src/middleware/validateRequest.js` exports `validateRequest(schema, section)`. It checks a request section against a supplied Zod schema and passes failures to the shared error handler. Parsed data goes into `request.validated[section]` for route handlers to use.
 - `server/src/middleware/errorHandler.js` is the sole final API error handler. It formats Zod/request validation errors, parser errors, and expected application errors; hides unexpected internal details; and delegates with `next(error)` if a response has already started.
 - `server/src/utils/ApiError.js` defines `ApiError` for developer-controlled public application errors and `RequestValidationError` for internal Zod issues with their request-section label. Neither class writes an HTTP response; the central handler owns that job.
-- `server/src/startup.js` exports `startServer()`, which awaits the database connection before listening and returns the HTTP server plus a reusable `shutdown()` function. Failure cleans up the database client. Tests substitute database functions while using the real Express app, so ordinary tests never require Atlas.
+- `server/src/startup.js` exports `startServer()`, which awaits MongoDB, attempts optional Redis, then listens. It returns the HTTP server and a reusable `shutdown()` function. Failure and shutdown clean up both services, with MongoDB cleanup in `finally`. Tests can inject database functions and a Redis manager while using the real Express app.
 - `server/src/server.js` loads validated configuration, starts the application, and handles signals. An AbortController marks startup as cancelled during shutdown; it prevents a pending connection from subsequently opening HTTP. Startup failures produce a fixed safe message and non-zero exit. The shutdown deadline prevents hanging cleanup.
 - `server/test/env.test.js` uses Node's built-in test runner and separate child processes to check configuration in isolation. `createFixture()` copies the real loader into a disposable folder; `runConfig()` starts it with controlled environment variables. Tests never overwrite the developer's real `.env`, and disposable files are removed after each test.
 - `server/test/db.test.js` mocks Mongoose connection methods to verify success, failure propagation, reuse, and safe logs. `server/test/startup.test.js` checks database-before-HTTP ordering, real HTTP responses with mocked database readiness, failure cleanup, cancellation, occupied ports, and repeatable shutdown.
+- `server/test/redis.test.js` checks optional Redis lifecycle behavior using injected fake clients. The startup/environment/script tests also cover the new configuration and cleanup paths.
 - `server/test/request-errors.test.js` uses isolated Express apps with test-only routes to exercise validation and error responses over HTTP. It also checks the already-sent-response guard directly. No test routes are added to the production app.
 - `server/test/create-agent.test.js` exercises the production app over HTTP while mocking `Agent.init()` and `Agent.create()`. The mock creates and validates real in-memory Agent documents, but supplies simulated persistence timestamps; it does not prove storage.
 - `server/test/list-agents.test.js` exercises the production GET route with mocked `Agent.find()` query chains and `Agent.countDocuments()`. It checks filters, escaped regexes, projection, sort, skip/limit, metadata, invalid queries, empty pages, and safe error responses without a database connection.
@@ -222,7 +256,7 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/test/delete-agent.test.js` uses real HTTP routing and middleware with a mocked `Agent.findByIdAndDelete()` query. It verifies the targeted ID, projection, empty 204 response, malformed/uppercase IDs, missing records, safe 500 errors, and that neither a full-list query nor bulk deletion is used. No stored records are deleted by these tests.
 - `server/test/crud-flow.test.js` runs all five endpoints against one fresh, test-local mocked store with deterministic IDs/timestamps. It checks how changes affect later requests. It does not reimplement MongoDB search/filter behavior; the existing list tests continue checking that query contract separately.
 - `server/test-support/crudFlow.js` contains shared HTTP assertions, including readback after updates, no changes after rejected writes, an unrelated record surviving deletion, and missing-record responses after deletion. Both the normal lifecycle test and optional real integration script run these same assertions.
-- `server/test/integration-script.test.js` starts the new script without its explicit test URI and verifies that it stops with a clear message. It does not start MongoDB or read private configuration.
+- `server/test/integration-script.test.js` starts the optional CRUD and Redis scripts without their explicit test URLs and verifies that they stop with clear messages. It does not start either service or read private configuration.
 - `server/scripts/verify-crud.js` is an optional real MongoDB check using a separate connection and a randomly named disposable collection. It redirects all model calls used by the five endpoints to that isolated model, restores the original methods, and cleans up. It reads only `FLEETFLOW_TEST_MONGODB_URI` from the process environment and never imports the `.env` loader.
 - `server/scripts/verify-create-agent.js` is a separate, opt-in Atlas integration check. It redirects model calls to a clone of the same schema in a randomly named disposable collection, performs real writes and direct database reads, checks a duplicate, removes that collection, and closes connections. It does not insert into the normal agents collection and is not run by `npm test`.
 
@@ -756,8 +790,31 @@ Actual commands run inside `server/` on October 18, 2026:
 
 `git diff --check` from the repository root also passed. The existing coverage audit and the new shared lifecycle verify successful requests, validation failures, duplicates, and missing records across all five endpoints. Database operations in the normal suite are mocked; the optional script's configuration guard was tested without connecting, but its live MongoDB execution/cleanup remains unverified. No private `.env` was read or changed. No dependencies or API behavior changed, and nothing was staged or committed. Step 12 acceptance criteria passed using automated HTTP integration with mocked database operations. Steps 13-30 remain pending.
 
-After review, the suggested Step 12 commit message for you to execute is:
+## Step 13 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `npm install redis` | Added redis 6.3.0 and supporting packages (6 packages total); npm audited 92 packages and reported 0 vulnerabilities |
+| `npm ls --depth=0` | Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, Mongoose 9.11.2, redis 6.3.0 |
+| `node --test test/redis.test.js test/startup.test.js test/env.test.js` | Initial 24 focused tests passed |
+| `node --test test/redis.test.js test/startup.test.js test/env.test.js test/integration-script.test.js` | Final 27 focused tests passed, including the additional cleanup-failure and optional-script checks |
+| `node --test test/redis.test.js` | All 9 passed after final review added explicit-reconnect cleanup of a previously lost client; affected syntax checks were also rerun |
+| `npm test` | All 87 tests passed, including all existing CRUD and HTTP regressions |
+| `node --check src/config/redis.js` | Passed |
+| `node --check src/config/env.js` | Passed |
+| `node --check src/startup.js` | Passed |
+| `node --check test/redis.test.js` | Passed |
+| `node --check test/startup.test.js` | Passed |
+| `node --check test/env.test.js` | Passed |
+| `node --check test/integration-script.test.js` | Passed |
+| `node --check scripts/verify-redis.js` | Passed |
+
+`git diff --check` from the repository root also passed. Tests use fake Redis clients; malformed-URL handling uses the installed real client without connecting. The optional PING script's missing-configuration guard passed, but **no live Redis integration was performed**. MongoDB gating, health responses after Redis failure, startup cancellation, and repeatable cleanup were verified with injected services. `server/.env` was not read or changed. No caching, endpoint changes, staging, or commits were added. Step 13 acceptance criteria passed with mocked connectivity verification; Steps 14-30 remain pending.
+
+After review, the suggested Step 13 commit message for you to execute is:
 
 ```text
-test: strengthen CRUD API coverage
+feat: configure Redis connection
 ```

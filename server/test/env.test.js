@@ -83,6 +83,15 @@ test('MongoDB SRV syntax is accepted without contacting the database', (t) => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('optional Redis configuration stays absent when missing or blank and trims a supplied URL', (t) => {
+  const directory = createFixture(t);
+  for (const REDIS_URL of [undefined, '', '   ', ' redis://127.0.0.1:6379/0 ']) {
+    const result = runConfig(directory, { PORT: '5000', REDIS_URL });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).REDIS_URL, REDIS_URL?.trim() || undefined);
+  }
+});
+
 test('missing, blank, malformed, fractional, and out-of-range ports fail without leaking values', (t) => {
   const directory = createFixture(t);
   for (const PORT of [undefined, '', ' ', '0', '-1', '65536', '5000.5', '5e3', '0x1388', 'private-test-value']) {

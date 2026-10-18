@@ -3,6 +3,8 @@ import { createServer } from 'node:net';
 import test from 'node:test';
 import app from '../src/app.js';
 import { startServer } from '../src/startup.js';
+import { createRedisConnection } from '../src/config/redis.js';
+import { EventEmitter } from 'node:events';
 
 const config = { PORT: 0, MONGODB_URI: 'mongodb://127.0.0.1:27017/fleetflow_test' };
 
@@ -77,4 +79,72 @@ test('an occupied HTTP port fails startup and closes the database connection', a
     disconnect: async () => { disconnected = true; },
   }), { code: 'EADDRINUSE' });
   assert.equal(disconnected, true);
+});
+
+test('startup connects MongoDB then Redis, and repeated shutdown closes both once', async (t) => {
+  const events = [];
+  const running = await startServer({ ...config, REDIS_URL: 'redis://127.0.0.1:6379' }, {
+    connect: async () => { events.push('mongo connect'); },
+    disconnect: async () => { events.push('mongo close'); },
+    redis: {
+      connect: async (url) => { assert.equal(url, 'redis://127.0.0.1:6379'); events.push('redis connect'); },
+      disconnect: async () => { events.push('redis close'); },
+    },
+  });
+  t.after(() => running.shutdown());
+  assert.deepEqual(events, ['mongo connect', 'redis connect']);
+  await Promise.all([running.shutdown(), running.shutdown()]);
+  assert.deepEqual(events, ['mongo connect', 'redis connect', 'redis close', 'mongo close']);
+});
+
+test('Redis connection failure still allows health requests and normal shutdown', async (t) => {
+  const client = new EventEmitter();
+  client.isOpen = false;
+  client.connect = async () => { throw new Error('fake-private-redis-details'); };
+  client.destroy = () => {};
+  const redis = createRedisConnection({ clientFactory: () => client, logger: { log() {}, warn() {} } });
+  let mongoClosed = false;
+  const running = await startServer({ ...config, REDIS_URL: 'redis://127.0.0.1:6379' }, {
+    connect: async () => {}, disconnect: async () => { mongoClosed = true; }, redis,
+  });
+  t.after(() => running.shutdown());
+  const health = await fetch(`http://127.0.0.1:${running.server.address().port}/api/health`, { signal: AbortSignal.timeout(5000) });
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { success: true, message: 'FleetFlow API is running' });
+  assert.equal(redis.client, null);
+  await running.shutdown();
+  assert.equal(mongoClosed, true);
+});
+
+test('cancellation during Redis startup cleans both services without opening HTTP', async () => {
+  const controller = new AbortController();
+  const closed = [];
+  await assert.rejects(startServer(config, {
+    connect: async () => {}, disconnect: async () => { closed.push('mongo'); },
+    redis: { connect: async () => { controller.abort(); }, disconnect: async () => { closed.push('redis'); } },
+    application: { listen: () => assert.fail('Cancelled startup must not listen') },
+    signal: controller.signal,
+  }), /Startup was cancelled/);
+  assert.deepEqual(closed, ['redis', 'mongo']);
+});
+
+test('HTTP startup failure cleans Redis as well as MongoDB', async () => {
+  const closed = [];
+  await assert.rejects(startServer(config, {
+    connect: async () => {}, disconnect: async () => { closed.push('mongo'); },
+    redis: { connect: async () => {}, disconnect: async () => { closed.push('redis'); } },
+    application: { listen: () => { throw new Error('Controlled listen failure'); } },
+  }), /Controlled listen failure/);
+  assert.deepEqual(closed, ['redis', 'mongo']);
+});
+
+test('a Redis cleanup failure cannot skip MongoDB cleanup', async () => {
+  let mongoClosed = false;
+  const running = await startServer(config, {
+    connect: async () => {}, disconnect: async () => { mongoClosed = true; },
+    redis: { connect: async () => {}, disconnect: async () => { throw new Error('Controlled cleanup failure'); } },
+  });
+  await assert.rejects(running.shutdown(), /Controlled cleanup failure/);
+  assert.equal(mongoClosed, true);
+  assert.equal(running.server.listening, false);
 });
