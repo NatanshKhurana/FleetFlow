@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { mongo } from 'mongoose';
 
 // Resolve from this file, so starting Node from the project root also works.
 const envPath = fileURLToPath(new URL('../../.env', import.meta.url));
@@ -18,13 +19,25 @@ const portSchema = z.string({ error: portMessage })
   .transform(Number)
   .pipe(z.number().int(portMessage).min(1, portMessage).max(65535, portMessage));
 
-// Empty future-service fields count as absent. Connection validation comes later.
+const mongoMessage = 'MONGODB_URI must be a valid, non-empty MongoDB connection URI.';
+const mongoSchema = z.string({ error: mongoMessage }).trim().min(1, mongoMessage)
+  .refine((value) => {
+    try {
+      // The driver parses the URI here; constructing a client opens no connection.
+      new mongo.MongoClient(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, mongoMessage);
+
+// Redis stays optional until its integration step.
 const optionalServiceValue = z.string().trim().optional()
   .transform((value) => value || undefined);
 
 const envSchema = z.object({
   PORT: portSchema,
-  MONGODB_URI: optionalServiceValue,
+  MONGODB_URI: mongoSchema,
   REDIS_URL: optionalServiceValue,
 });
 
@@ -33,7 +46,7 @@ const result = envSchema.safeParse(process.env);
 if (!result.success) {
   // Report field names and instructions, never submitted values or credentials.
   const details = result.error.issues.map((issue) => `- ${issue.message}`).join('\n');
-  throw new Error(`Invalid environment configuration:\n${details}\nSet PORT in server/.env or the process environment.`);
+  throw new Error(`Invalid environment configuration:\n${details}\nSet PORT and MONGODB_URI in server/.env or the process environment.`);
 }
 
 export const env = result.data;

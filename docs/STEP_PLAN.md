@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-3 are **COMPLETE** after verification; Steps 4-30 remain **PENDING**. Steps 1 and 2 were committed as `0f170dc` and `e5ad3ec`. Step 3 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-4 are **COMPLETE** after verification; Steps 5-30 remain **PENDING**. Steps 1-3 were committed as `0f170dc`, `e5ad3ec`, and `ee4870c`. Step 4 automated checks and a real Atlas connection, ping, and health response passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -32,7 +32,7 @@ Acceptance criteria: Required configuration is documented, .env is ignored by Gi
 Commit: chore: configure environment variables
 
 ### Step 4 — Connect MongoDB
-Status: PENDING
+Status: COMPLETE
 
 Objective: Configure Mongoose and connect to MongoDB Atlas.
 
