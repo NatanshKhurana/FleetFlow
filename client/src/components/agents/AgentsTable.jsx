@@ -1,4 +1,5 @@
 import { Eye, Pencil, Trash2 } from 'lucide-react';
+import { Link } from 'react-router';
 
 const date = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
@@ -8,10 +9,10 @@ export default function AgentsTable({ agents }) {
       <p className="border-b border-slate-100 px-5 py-3 text-xs text-slate-500 lg:hidden">Scroll within the table to see all columns.</p>
       <div role="region" aria-label="Agents table, scroll horizontally for more columns" tabIndex={0} className="max-w-full overflow-x-auto rounded-b-2xl">
         <table className="w-full min-w-[52rem] table-fixed text-left text-sm">
-          <caption className="sr-only">Delivery agents matching your applied filters. View, edit and delete actions are coming soon.</caption>
+          <caption className="sr-only">Delivery agents matching your applied filters. View opens agent details. Edit and delete actions are coming soon.</caption>
           <colgroup><col className="w-[20%]" /><col className="w-[22%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[16%]" /></colgroup>
           <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600">
-            <tr>{['Agent / ID', 'Contact', 'Service area', 'Status', 'Added (UTC)', 'Actions (soon)'].map((heading) =>
+            <tr>{['Agent / ID', 'Contact', 'Service area', 'Status', 'Added (UTC)', 'Actions'].map((heading) =>
               <th key={heading} scope="col" className="px-5 py-4 font-semibold">{heading}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -35,7 +36,11 @@ export default function AgentsTable({ agents }) {
                 <td className="px-5 py-5 text-xs leading-6 text-slate-500"><time dateTime={agent.createdAt}>{date.format(new Date(agent.createdAt))}</time></td>
                 <td className="px-5 py-4">
                   <div className="flex flex-wrap gap-1">
-                    {[[Eye, 'View'], [Pencil, 'Edit'], [Trash2, 'Delete']].map(([Icon, label]) =>
+                    <Link to={`/agents/${encodeURIComponent(agent.id)}`} aria-label={`View agent ${agent.agentId}`}
+                      title="View agent details" className="flex size-11 items-center justify-center rounded-lg text-emerald-700 hover:bg-emerald-50">
+                      <Eye size={18} aria-hidden="true" />
+                    </Link>
+                    {[[Pencil, 'Edit'], [Trash2, 'Delete']].map(([Icon, label]) =>
                       <button key={label} type="button" disabled aria-label={`${label} agent (coming soon)`}
                         title={`${label} agent: coming soon`} className="flex size-7 cursor-not-allowed items-center justify-center rounded-md text-slate-400">
                         <Icon size={15} aria-hidden="true" />

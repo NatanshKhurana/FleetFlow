@@ -30,6 +30,28 @@ export async function createAgent(data, client = api) {
   return publicAgent(response.data.data);
 }
 
+export function isAgentId(id) {
+  return typeof id === 'string' && id.length === 24 && /^[a-fA-F0-9]{24}$/.test(id);
+}
+
+export async function fetchAgentById(id, { signal } = {}, client = api) {
+  if (!isAgentId(id)) return { kind: 'invalid', agent: null };
+  const normalizedId = id.toLowerCase();
+  let response;
+  try {
+    response = await client.get(`/agents/${normalizedId}`, { signal });
+  } catch (error) {
+    // Expected client errors are page states, not raw error messages to display.
+    if (error?.response?.status === 404) return { kind: 'not-found', agent: null };
+    if (error?.response?.status === 400) return { kind: 'invalid', agent: null };
+    throw error;
+  }
+  if (response.status !== 200 || response.data?.success !== true) throw new Error('Invalid detail response');
+  const agent = publicAgent(response.data.data);
+  if (agent.id.toLowerCase() !== normalizedId) throw new Error('Unexpected agent ID');
+  return { kind: 'found', agent };
+}
+
 export async function fetchAgents(query = {}, { signal } = {}, client = api) {
   const params = agentListParams(query);
   const { data: body } = await client.get('/agents', { params, signal });

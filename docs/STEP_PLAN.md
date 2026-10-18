@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-22 are **COMPLETE** and Steps 23-30 remain **PENDING**. Step 21 is committed as `36ecb01`; earlier steps retain their existing commits. Step 22 adds the inline Add new agent form using the existing POST contract, client validation, safe errors with retained drafts, duplicate-submit protection, success feedback, and a list reload with cleared filters. Verification passed: 36 focused tests, all 50 frontend tests, production build, syntax checks, and Git checks. Additional backend regression verification passed all 128 tests with test-file concurrency limited to one; an earlier parallel run hit two existing configuration-test child-process timeouts, and all 8 configuration tests passed independently. Browser interaction/viewport checks and live creation were not performed in Step 22. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. View/Edit/Delete remain disabled for later steps. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-23 are **COMPLETE** and Steps 24-30 remain **PENDING**. Step 22 is committed as `7ce23a9`; earlier steps retain their existing commits. Step 23 adds the Agent details route at /agents/:id, accessible table View links, all public fields and UTC timestamps, safe invalid/not-found/error states, and retry using the existing GET endpoint and shared request lifecycle. Verification passed: 37 focused tests, all 65 frontend tests, production build, syntax checks, and Git checks. Browser interaction/viewport checks and live detail API verification were not performed in Step 23; tests use controlled requests and an isolated HTTP fixture. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. Edit/Delete remain disabled for later steps. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -209,7 +209,7 @@ Acceptance criteria: Required fields, status selection, client-side validation, 
 Commit: feat: add delivery agent creation form
 
 ### Step 23 — Build Agent Details page
-Status: PENDING
+Status: COMPLETE
 
 Objective: Show an individual agent's details and timestamps.
 

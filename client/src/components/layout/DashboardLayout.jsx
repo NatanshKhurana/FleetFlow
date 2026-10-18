@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation } from 'react-router';
+import { Outlet, matchPath, useLocation } from 'react-router';
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
 
@@ -8,7 +8,8 @@ export default function DashboardLayout() {
   const menuButtonRef = useRef(null);
   const { pathname } = useLocation();
   const titles = { '/': 'Overview', '/agents': 'Agents' };
-  const title = titles[pathname.replace(/\/$/, '') || '/'] || 'Page not found';
+  const title = titles[pathname.replace(/\/$/, '') || '/']
+    || (matchPath('/agents/:id', pathname) ? 'Agent details' : 'Page not found');
 
   function closeNavigation() {
     setNavigationOpen(false);

@@ -13,7 +13,7 @@ export function DashboardNavigation({ onNavigate }) {
         <LayoutDashboard size={19} strokeWidth={1.8} aria-hidden="true" />
         Overview
       </NavLink>
-      <NavLink to="/agents" end onClick={onNavigate} className={({ isActive }) =>
+      <NavLink to="/agents" onClick={onNavigate} className={({ isActive }) =>
         'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ' +
         (isActive ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950')
       }>

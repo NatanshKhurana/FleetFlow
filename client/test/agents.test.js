@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { createServer as createHttpServer } from 'node:http';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
+import { MemoryRouter } from 'react-router';
 import { createServer } from 'vite';
 import { createAgentsResource } from '../src/state/agentsResource.js';
 
@@ -39,8 +40,8 @@ function response(query = defaults, records = [agent()], total = 41) {
 
 function render(state, query = defaults) {
   // React's hydration comments separate text nodes but do not change visible text.
-  return renderToString(createElement(AgentsContent, { state, query,
-    onApply() {}, onClear() {}, onPageChange() {}, onRetry() {} })).replace(/<!--.*?-->/g, '');
+  return renderToString(createElement(MemoryRouter, {}, createElement(AgentsContent, { state, query,
+    onApply() {}, onClear() {}, onPageChange() {}, onRetry() {} }))).replace(/<!--.*?-->/g, '');
 }
 
 test('query mapping uses API defaults and omits blank optional filters', () => {
@@ -113,8 +114,10 @@ test('table renders existing agent fields, accessible headings, safe text, and u
   assert.match(html, /role="region"[^>]*tabindex="0"/);
   assert.match(html, /overflow-x-auto/);
   assert.match(html, /&lt;script&gt;Alex&lt;\/script&gt;/);
-  for (const action of ['View', 'Edit', 'Delete']) assert.match(html, new RegExp(`disabled="" aria-label="${action} agent \\(coming soon\\)"`));
-  assert.doesNotMatch(html, /<script>|href="\/agents\/|__v/);
+  assert.match(html, /href="\/agents\/000000000000000000000001"/);
+  assert.match(html, /aria-label="View agent AGENT-001"/);
+  for (const action of ['Edit', 'Delete']) assert.match(html, new RegExp(`disabled="" aria-label="${action} agent \\(coming soon\\)"`));
+  assert.doesNotMatch(html, /<script>|__v|View agent \(coming soon\)/);
 });
 
 test('search/filter form exposes supported fields, values, page sizes, and explicit apply/clear actions', () => {

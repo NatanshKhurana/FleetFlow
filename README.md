@@ -4,7 +4,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The backend supports creating, listing, retrieving, partially updating, and deleting agents.** List requests support pagination/search/filters; detail, update, and delete requests use the public database ID. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. The frontend provides the API-backed overview, a searchable, filtered, paginated Agents page, and an Add new agent form. Detail, edit, and delete screens remain planned.
+**The backend supports creating, listing, retrieving, partially updating, and deleting agents.** List requests support pagination/search/filters; detail, update, and delete requests use the public database ID. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. The frontend provides the API-backed overview, searchable/filtered/paginated Agents page, Add new agent form, and individual agent details. Edit and delete screens remain planned.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
@@ -27,11 +27,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 19 is COMPLETE and committed as `f90d653` (`feat: build responsive admin dashboard layout`). The project owner confirmed manual browser viewport and keyboard verification passed.
 - Step 20 is COMPLETE and committed as `b5d958e` (`feat: add agent dashboard overview`), including the port-5000 proxy alignment.
 - Step 21 is COMPLETE and committed as `36ecb01` (`feat: build searchable agent management table`). Its verification results remain recorded below.
-- Step 22 is COMPLETE after 36 focused tests, all 50 frontend tests, the production build, syntax checks, and 128 sequential backend regression tests passed. It adds the agent creation form through the existing POST contract. Browser interaction and live creation were not verified; changes remain uncommitted for review.
-- Steps 23-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 22 is COMPLETE and committed as `7ce23a9` (`feat: add delivery agent creation form`). Its verification results remain recorded below.
+- Step 23 is COMPLETE after 37 focused tests, all 65 frontend tests, the production build, syntax checks, and Git checks passed. Agent details use the existing GET endpoint. Browser interaction and live API verification were not performed in this step; changes remain uncommitted for review.
+- Steps 24-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` contains a responsive dashboard shell, an API-backed overview, and the Agents list with server-backed search, filters, pagination, loading/error/retry/empty states, and agent creation. Edit/delete forms and details remain planned. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
+- `client/` contains a responsive dashboard shell, API-backed overview, searchable/filtered/paginated Agents list, agent creation, and an individual detail page with loading/not-found/error/retry states. Edit/delete forms remain planned. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
@@ -49,7 +50,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active/inactive agents plus recent registrations. Backend CRUD, validation, caching/invalidation, the dashboard overview, the Agents list, and the agent creation form are implemented. Agent editing/deletion flows and detail screens remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active/inactive agents plus recent registrations. Backend CRUD, validation, caching/invalidation, the dashboard overview, Agents list, creation form, and detail page are implemented. Agent editing/deletion flows remain planned.
 
 ## High-level architecture
 
@@ -88,16 +89,17 @@ FleetFlow/
 |       |-- components/overview/OverviewContent.jsx  Summary cards and request states
 |       |-- pages/OverviewPage.jsx   Overview request lifecycle and page
 |       |-- services/overviewService.js  Paginated counts and recent-agent mapping
-|       |-- components/agents/  Filters, table, results, and AddAgentForm
+|       |-- components/agents/  Filters, table, results, AddAgentForm, and AgentDetailContent
 |       |-- pages/AgentsPage.jsx  Agents request lifecycle inside the shared shell
-|       |-- services/agentsService.js  List/create requests and public response validation
+|       |-- pages/AgentDetailPage.jsx  Route ID checks and cancellable detail loading
+|       |-- services/agentsService.js  List/create/detail requests and public response validation
 |       |-- validation/createAgent.js  Form rules, normalization, and safe submission errors
 |       |-- state/createAgentResource.js  Form values and guarded submission lifecycle
 |       |-- state/agentsResource.js  Applied filters, pagination, retry, and reset
 |       |-- state/requestResource.js  Shared load/retry/cancel lifecycle
 |       |-- state/overviewResource.js  Existing overview interface to that shared lifecycle
 |       `-- lib/api.js        Shared Axios client
-|   `-- test/                Layout, list/create agents, overview, and Vite proxy tests
+|   `-- test/                Layout, list/create/detail agents, overview, and Vite proxy tests
 |-- server/
 |   |-- .env.example         Safe backend configuration template
 |   |-- package.json         Server dependencies and commands
@@ -193,7 +195,7 @@ The existing backend's normal local configuration uses port 5000, and the Vite p
 | `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
 | `npm test` | Run 36 layout, agents, overview request/state/render, Axios HTTP, and Vite proxy tests using Node's built-in test runner |
 
-`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs such as `/agents`. Overview, Agents, and the unknown-page fallback share the dashboard shell. Forms and detail screens remain planned.
+`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs such as `/agents` and `/agents/:id`. Overview, Agents, Agent details, and the unknown-page fallback share the dashboard shell. The creation form is available on Agents; edit/delete flows remain planned.
 
 ### Frontend configuration
 
@@ -212,13 +214,13 @@ If you copied the older client example, replace its `VITE_API_BASE_URL=http://lo
 
 Vite loads client environment files automatically. **Every `VITE_*` value is public browser configuration** and can be included in built assets. Never copy server database/Redis URLs, passwords, or secret tokens into client environment files. The client does not load the private backend environment file. See [Vite environment documentation](https://vite.dev/guide/env-and-mode).
 
-Overview and Agents read data through the existing Axios client; the Add new agent form also uses POST `/api/agents`. No backend CORS changes or new endpoints were needed. A frontend build alone does not verify backend connectivity; Step 20 records the earlier live overview check, while Steps 21-22 use controlled responses and local HTTP fixtures.
+Overview, Agents, and Agent details read data through the existing Axios client; the Add new agent form also uses POST `/api/agents`. No backend CORS changes or new endpoints were needed. A frontend build alone does not verify backend connectivity; Step 20 records the earlier live overview check, while Steps 21-23 use controlled responses and local HTTP fixtures.
 
 ### Frontend files and dependencies
 
 - `index.html` supplies the page title and the `root` element where React mounts.
 - `src/main.jsx` mounts React with `createRoot()`. `StrictMode` helps detect development issues; `BrowserRouter` enables navigation without full page reloads.
-- `src/App.jsx` nests Overview (`/`), Agents (`/agents`), and the unknown-page route inside `DashboardLayout`. Both page containers subscribe to request state and load/cancel it through React effects. The overview view renders summary cards and recent registrations. `components/agents/` contains the search/filter form, results states/pagination, responsive table, and inline creation form.
+- `src/App.jsx` nests Overview (`/`), Agents (`/agents`), Agent details (`/agents/:id`), and the unknown-page route inside `DashboardLayout`. Page containers subscribe to request state and load/cancel it through React effects. The overview view renders summary cards and recent registrations. `components/agents/` contains the search/filter form, results states/pagination, responsive table, inline creation form, and detail view.
 - `components/layout/Brand.jsx` shares the FleetFlow logo and subtitle. `Sidebar.jsx` exports the shared navigation and desktop sidebar. `Header.jsx` uses that same navigation for a mobile disclosure. `DashboardLayout.jsx` owns the menu state, responsive reset, Escape handler, skip link, page title, and React Router `Outlet`, which displays the selected page.
 - `src/index.css` imports Tailwind and defines the system font, visible keyboard focus outlines, and wrapping for long text. `vite.config.js` registers the React and Tailwind plugins. This follows the officially supported [Tailwind Vite setup](https://tailwindcss.com/docs/installation/using-vite); no legacy `tailwindcss init`, separate PostCSS configuration, or Autoprefixer package is needed.
 - `src/lib/api.js` is the existing shared Axios client. The overview and agents services map the actual API responses. The existing request lifecycle was extracted unchanged into `state/requestResource.js` so both pages share loading/success/error, cancellation, retry, and late-response protection. `overviewResource.js` preserves its existing export as an alias; `agentsResource.js` adds applied query state, page resets, and server-bound pagination. React uses `useSyncExternalStore` to subscribe to the same logic tested directly by Node. No authentication or interceptors were added.
@@ -1310,4 +1312,51 @@ Suggested Step 22 commit message after review:
 
 ```text
 feat: add delivery agent creation form
+```
+
+## Step 23 Agent details
+
+Select the table's **View** icon (accessible name: View agent followed by the business agent ID) to open `/agents/:id`. The route's `id` is MongoDB's public 24-character hexadecimal record ID, not the business `agentId`. The Agents navigation remains active and the header reads Agent details. Edit and Delete remain disabled. Unknown deeper paths still show the existing page-not-found screen.
+
+`agentsService.fetchAgentById()` calls the existing `GET /api/agents/:id` through the shared Axios instance, preserving the `/api` base and configurable port-5000 proxy. It normalizes valid IDs to lowercase, rejects invalid/missing IDs before HTTP access, requires the existing HTTP 200 `{ success: true, data: agent }` contract, and reuses the public-field response checker. The returned record must match the requested database ID. No backend or endpoint changes were needed.
+
+The page displays Full name, Agent ID, Phone, Email, Service area, Active/Inactive status, Created (UTC), Last updated (UTC), and Database record ID. Both timestamps display date and time including seconds in UTC, with machine-readable `<time>` values. Text wraps inside a one-column mobile/two-column wider layout; contact values display as escaped text. A labelled definition list keeps fields understandable. **Back to Agents** is a keyboard-accessible link available in every state, including loading and errors.
+
+`pages/AgentDetailPage.jsx` reads the route parameter and starts the existing shared request resource. Each new record ID gets its own resource, cancelling the previous request; late completions cannot replace newer data. The component cancels on unmount and supports StrictMode's cleanup/reload cycle. `components/agents/AgentDetailContent.jsx` renders the record and feedback states. No duplicate request lifecycle or additional dependencies were introduced.
+
+| Condition | Page behavior |
+| --- | --- |
+| Loading | Announces Loading agent details; no old agent data is shown |
+| Invalid/missing ID | Invalid agent link feedback with Back to Agents; no HTTP request for locally invalid IDs |
+| HTTP 404 | Agent not found feedback, Back to Agents, and Try again |
+| HTTP 400 | Invalid agent link feedback; no raw validation response is displayed |
+| Network error, timeout, server failure, or malformed response | Generic unavailable message and Try again; no raw server text or internal details |
+| Retry | Starts a fresh GET, clears old displayed data, and can recover to success |
+
+`/agents` without an ID remains the list route. Returning to it starts the existing list at its defaults: Step 21's local filters/page state is not persisted across navigation. Retry uses the existing backend detail cache and does not bypass its TTL; no polling or cache changes were added.
+
+### Step 23 verification
+
+Commands run inside `client/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/agent-detail.test.js test/agents.test.js test/layout.test.js` | 37 passed, 0 failed, 0 skipped |
+| `npm test` | All 65 frontend tests passed, 0 failed, 0 skipped |
+| `npm run build` | Passed with Vite 8.3.4; compiled all changed JSX and generated ignored production assets |
+| `node --check src/services/agentsService.js` | Passed |
+| `node --check test/agent-detail.test.js` | Passed |
+| `node --check test/agents.test.js` | Passed |
+| `node --check test/layout.test.js` | Passed |
+
+From the repository root, `git diff --check` passed. The 12 new detail tests cover ID validation, targeted request path/cancellation, View-link route resolution, all public fields and both statuses, UTC dates, safe text rendering, loading, 404/400 states, network/timeout/500 failures and retry, malformed responses, late completions, record isolation, and actual Axios requests against an isolated HTTP fixture returning 200 and 404. Three new shell tests verify the detail route/title/navigation, invalid IDs, missing-segment list behavior, and unsupported deeper routes. Existing list tests now provide router context for View links; create, overview, and proxy regressions still pass.
+
+These tests render React to strings and exercise request state directly. Browser DOM clicks, keyboard/focus behavior, and viewport appearance were not inspected in this step. No live MongoDB or Redis detail integration was run. To review manually, run your configured backend separately and `npm run dev` in `client/`, open `/agents`, and use Tab/Enter on View. Check all fields and timestamps, Back to Agents, invalid links, an unavailable API and retry, and the existing 320/390/768/1024/1440px viewport widths.
+
+Step 23 is COMPLETE; Steps 24-30 remain PENDING. No backend, dependency, lockfile, configuration, edit, or delete changes were made. Backend tests were not rerun because backend files are unchanged. The configured live backend was not started; `server/.env` was not accessed. Nothing was staged or committed.
+
+Suggested Step 23 commit message after review:
+
+```text
+feat: add agent details view
 ```

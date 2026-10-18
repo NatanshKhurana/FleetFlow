@@ -45,6 +45,28 @@ test('Agents route uses the shared shell with active navigation, real filters, a
   assert.doesNotMatch(html, /Agents, coming soon/);
 });
 
+test('detail route uses the shared shell, correct page title, active Agents navigation, and back link', () => {
+  const html = render(App, {}, '/agents/000000000000000000000001');
+  assert.match(html, /<h1[^>]*>Agent details<\/h1>/);
+  assert.match(html, /aria-current="page"[^>]*href="\/agents"/);
+  assert.match(html, /Loading agent details/);
+  assert.match(html, /href="\/agents"[^>]*>[\s\S]*Back to Agents/);
+  assert.doesNotMatch(html, /This page isn&#x27;t here|role="search"|<form/);
+});
+
+test('malformed detail route IDs show safe feedback; a missing segment remains the Agents list', () => {
+  const invalid = render(App, {}, '/agents/AGENT-001');
+  assert.match(invalid, /Invalid agent link/);
+  assert.doesNotMatch(invalid, /Loading agent details|AGENT-001|Try again/);
+  assert.match(render(App, {}, '/agents/'), /Loading agents/);
+});
+
+test('extra path segments do not become unfinished edit or delete pages', () => {
+  const html = render(App, {}, '/agents/000000000000000000000001/edit');
+  assert.match(html, /<h1[^>]*>Page not found<\/h1>/);
+  assert.doesNotMatch(html, /Loading agent details/);
+});
+
 test('collapsed mobile navigation has a labelled control and hidden contents', () => {
   const html = render(Header, { title: 'Overview', navigationOpen: false });
   assert.match(html, /aria-label="Open navigation" aria-expanded="false" aria-controls="mobile-navigation"/);

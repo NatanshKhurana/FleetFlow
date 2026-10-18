@@ -2,6 +2,7 @@ import { Link, Route, Routes } from 'react-router';
 import DashboardLayout from './components/layout/DashboardLayout.jsx';
 import OverviewPage from './pages/OverviewPage.jsx';
 import AgentsPage from './pages/AgentsPage.jsx';
+import AgentDetailPage from './pages/AgentDetailPage.jsx';
 
 function NotFoundPage() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
       <Route element={<DashboardLayout />}>
         <Route index element={<OverviewPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="agents/:id" element={<AgentDetailPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
