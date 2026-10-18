@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-15 are **COMPLETE** after verification; Steps 16-30 remain **PENDING**. Steps 1-14 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, `a40ea0e`, `c57405e`, `25c803f`, and `0977418`. The project owner separately verified real Redis Cloud connectivity and PING/PONG using `node scripts/verify-redis.js`. Step 15's 31 focused tests and all 105 server tests passed with fake Redis and mocked MongoDB; live detail-cache behavior was not tested. Step 15 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-16 are **COMPLETE** after verification; Steps 17-30 remain **PENDING**. Steps 1-15 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, `a40ea0e`, `c57405e`, `25c803f`, `0977418`, and `09580c8`. The project owner separately verified real Redis Cloud connectivity and PING/PONG using `node scripts/verify-redis.js`. Step 16 passed 44 focused tests and all 117 server tests with fake Redis and mocked MongoDB, plus syntax checks and git diff --check. Live cache invalidation was not integration-tested. Step 16 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -144,7 +144,7 @@ Acceptance criteria: Individual agent responses are cached, expire correctly, an
 Commit: feat: cache individual agent responses
 
 ### Step 16 — Implement cache invalidation
-Status: PENDING
+Status: COMPLETE
 
 Objective: Invalidate affected cache keys after successful create, update, and delete operations.
 
