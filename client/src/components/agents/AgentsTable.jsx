@@ -3,13 +3,13 @@ import { Link } from 'react-router';
 
 const date = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
-export default function AgentsTable({ agents }) {
+export default function AgentsTable({ agents, onDelete }) {
   return (
     <>
       <p className="border-b border-slate-100 px-5 py-3 text-xs text-slate-500 lg:hidden">Scroll within the table to see all columns.</p>
       <div role="region" aria-label="Agents table, scroll horizontally for more columns" tabIndex={0} className="max-w-full overflow-x-auto rounded-b-2xl">
         <table className="w-full min-w-[52rem] table-fixed text-left text-sm">
-          <caption className="sr-only">Delivery agents matching your applied filters. View opens agent details. Edit and delete actions are coming soon.</caption>
+          <caption className="sr-only">Delivery agents matching your applied filters. View details, edit information, or confirm deletion for an agent.</caption>
           <colgroup><col className="w-[20%]" /><col className="w-[22%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[14%]" /><col className="w-[16%]" /></colgroup>
           <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600">
             <tr>{['Agent / ID', 'Contact', 'Service area', 'Status', 'Added (UTC)', 'Actions'].map((heading) =>
@@ -40,11 +40,14 @@ export default function AgentsTable({ agents }) {
                       title="View agent details" className="flex size-11 items-center justify-center rounded-lg text-emerald-700 hover:bg-emerald-50">
                       <Eye size={18} aria-hidden="true" />
                     </Link>
-                    {[[Pencil, 'Edit'], [Trash2, 'Delete']].map(([Icon, label]) =>
-                      <button key={label} type="button" disabled aria-label={`${label} agent (coming soon)`}
-                        title={`${label} agent: coming soon`} className="flex size-7 cursor-not-allowed items-center justify-center rounded-md text-slate-400">
-                        <Icon size={15} aria-hidden="true" />
-                      </button>)}
+                    <Link to={`/agents/${encodeURIComponent(agent.id)}/edit`} aria-label={`Edit agent ${agent.agentId}`}
+                      title="Edit agent" className="flex size-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
+                      <Pencil size={18} aria-hidden="true" />
+                    </Link>
+                    <button type="button" onClick={() => onDelete(agent)} aria-label={`Delete agent ${agent.agentId}`}
+                      title="Delete agent" className="flex size-11 items-center justify-center rounded-lg text-red-700 hover:bg-red-50">
+                      <Trash2 size={18} aria-hidden="true" />
+                    </button>
                   </div>
                 </td>
               </tr>

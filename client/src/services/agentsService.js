@@ -34,6 +34,22 @@ export function isAgentId(id) {
   return typeof id === 'string' && id.length === 24 && /^[a-fA-F0-9]{24}$/.test(id);
 }
 
+export async function updateAgent(id, changes, client = api) {
+  if (!isAgentId(id)) throw new Error('Invalid agent ID');
+  const response = await client.patch(`/agents/${id.toLowerCase()}`, changes);
+  if (response.status !== 200 || response.data?.success !== true) throw new Error('Invalid update response');
+  const agent = publicAgent(response.data.data);
+  if (agent.id.toLowerCase() !== id.toLowerCase()) throw new Error('Unexpected agent ID');
+  return agent;
+}
+
+export async function deleteAgent(id, client = api) {
+  if (!isAgentId(id)) throw new Error('Invalid agent ID');
+  const response = await client.delete(`/agents/${id.toLowerCase()}`);
+  // The existing API deliberately returns no JSON for a successful delete.
+  if (response.status !== 204) throw new Error('Invalid delete response');
+}
+
 export async function fetchAgentById(id, { signal } = {}, client = api) {
   if (!isAgentId(id)) return { kind: 'invalid', agent: null };
   const normalizedId = id.toLowerCase();

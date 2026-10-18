@@ -9,7 +9,8 @@ export default function DashboardLayout() {
   const { pathname } = useLocation();
   const titles = { '/': 'Overview', '/agents': 'Agents' };
   const title = titles[pathname.replace(/\/$/, '') || '/']
-    || (matchPath('/agents/:id', pathname) ? 'Agent details' : 'Page not found');
+    || (matchPath('/agents/:id/edit', pathname) ? 'Edit agent'
+      : matchPath('/agents/:id', pathname) ? 'Agent details' : 'Page not found');
 
   function closeNavigation() {
     setNavigationOpen(false);

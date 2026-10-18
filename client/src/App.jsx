@@ -23,6 +23,7 @@ export default function App() {
         <Route index element={<OverviewPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="agents/:id" element={<AgentDetailPage />} />
+        <Route path="agents/:id/edit" element={<AgentDetailPage editing />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

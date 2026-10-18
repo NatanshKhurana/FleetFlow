@@ -4,7 +4,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The backend supports creating, listing, retrieving, partially updating, and deleting agents.** List requests support pagination/search/filters; detail, update, and delete requests use the public database ID. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. The frontend provides the API-backed overview, searchable/filtered/paginated Agents page, Add new agent form, and individual agent details. Edit and delete screens remain planned.
+**The backend supports creating, listing, retrieving, partially updating, and deleting agents.** List requests support pagination/search/filters; detail, update, and delete requests use the public database ID. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. The frontend provides the API-backed overview, searchable/filtered/paginated Agents page, creation form, individual details, prefilled editing, and confirmed deletion.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
@@ -28,11 +28,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 20 is COMPLETE and committed as `b5d958e` (`feat: add agent dashboard overview`), including the port-5000 proxy alignment.
 - Step 21 is COMPLETE and committed as `36ecb01` (`feat: build searchable agent management table`). Its verification results remain recorded below.
 - Step 22 is COMPLETE and committed as `7ce23a9` (`feat: add delivery agent creation form`). Its verification results remain recorded below.
-- Step 23 is COMPLETE after 37 focused tests, all 65 frontend tests, the production build, syntax checks, and Git checks passed. Agent details use the existing GET endpoint. Browser interaction and live API verification were not performed in this step; changes remain uncommitted for review.
-- Steps 24-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 23 is COMPLETE and committed as `9e1f9a6` (`feat: add agent details view`). Its verification results remain recorded below.
+- Step 24 is COMPLETE after 77 focused tests, all 91 frontend tests, the production build, syntax checks, and Git checks passed. Editing and confirmed deletion use the existing PATCH/DELETE contracts. Browser interactions and live persistence were not verified in this step; changes remain uncommitted for review.
+- Steps 25-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` contains a responsive dashboard shell, API-backed overview, searchable/filtered/paginated Agents list, agent creation, and an individual detail page with loading/not-found/error/retry states. Edit/delete forms remain planned. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
+- `client/` contains a responsive dashboard shell, API-backed overview, searchable/filtered/paginated Agents list, creation/edit forms, individual details, and delete confirmation with loading/not-found/error/retry handling. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
@@ -50,7 +51,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active/inactive agents plus recent registrations. Backend CRUD, validation, caching/invalidation, the dashboard overview, Agents list, creation form, and detail page are implemented. Agent editing/deletion flows remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active/inactive agents plus recent registrations. Backend CRUD, validation, caching/invalidation, the dashboard overview, Agents list, creation/edit forms, detail page, and confirmed deletion are implemented. The remaining roadmap covers integration verification, polish, tests, documentation, and submission.
 
 ## High-level architecture
 
@@ -89,17 +90,19 @@ FleetFlow/
 |       |-- components/overview/OverviewContent.jsx  Summary cards and request states
 |       |-- pages/OverviewPage.jsx   Overview request lifecycle and page
 |       |-- services/overviewService.js  Paginated counts and recent-agent mapping
-|       |-- components/agents/  Filters, table, results, AddAgentForm, and AgentDetailContent
+|       |-- components/agents/  Filters, table, results, create/edit forms, details, and DeleteAgentDialog
 |       |-- pages/AgentsPage.jsx  Agents request lifecycle inside the shared shell
-|       |-- pages/AgentDetailPage.jsx  Route ID checks and cancellable detail loading
-|       |-- services/agentsService.js  List/create/detail requests and public response validation
+|       |-- pages/AgentDetailPage.jsx  Detail/edit loading, route ID checks, and post-mutation navigation
+|       |-- services/agentsService.js  CRUD requests and public response validation
 |       |-- validation/createAgent.js  Form rules, normalization, and safe submission errors
+|       |-- validation/agentMutations.js  Editable fields, partial updates, and mutation errors
 |       |-- state/createAgentResource.js  Form values and guarded submission lifecycle
+|       |-- state/agentMutationResources.js  Guarded edit/save and confirm/delete lifecycles
 |       |-- state/agentsResource.js  Applied filters, pagination, retry, and reset
 |       |-- state/requestResource.js  Shared load/retry/cancel lifecycle
 |       |-- state/overviewResource.js  Existing overview interface to that shared lifecycle
 |       `-- lib/api.js        Shared Axios client
-|   `-- test/                Layout, list/create/detail agents, overview, and Vite proxy tests
+|   `-- test/                Layout, agent CRUD UI/services, overview, and Vite proxy tests
 |-- server/
 |   |-- .env.example         Safe backend configuration template
 |   |-- package.json         Server dependencies and commands
@@ -195,7 +198,7 @@ The existing backend's normal local configuration uses port 5000, and the Vite p
 | `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
 | `npm test` | Run 36 layout, agents, overview request/state/render, Axios HTTP, and Vite proxy tests using Node's built-in test runner |
 
-`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs such as `/agents` and `/agents/:id`. Overview, Agents, Agent details, and the unknown-page fallback share the dashboard shell. The creation form is available on Agents; edit/delete flows remain planned.
+`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs such as `/agents`, `/agents/:id`, and `/agents/:id/edit`. Overview, Agents, Agent details/editing, and the unknown-page fallback share the dashboard shell. Creation is available on Agents; confirmed deletion is available from the table and detail page.
 
 ### Frontend configuration
 
@@ -214,13 +217,13 @@ If you copied the older client example, replace its `VITE_API_BASE_URL=http://lo
 
 Vite loads client environment files automatically. **Every `VITE_*` value is public browser configuration** and can be included in built assets. Never copy server database/Redis URLs, passwords, or secret tokens into client environment files. The client does not load the private backend environment file. See [Vite environment documentation](https://vite.dev/guide/env-and-mode).
 
-Overview, Agents, and Agent details read data through the existing Axios client; the Add new agent form also uses POST `/api/agents`. No backend CORS changes or new endpoints were needed. A frontend build alone does not verify backend connectivity; Step 20 records the earlier live overview check, while Steps 21-23 use controlled responses and local HTTP fixtures.
+Overview, Agents, and Agent details read data through the existing Axios client. Agent forms use POST `/api/agents` and PATCH `/api/agents/:id`; confirmed deletion uses DELETE `/api/agents/:id`. No backend CORS changes or new endpoints were needed. A frontend build alone does not verify backend connectivity; Step 20 records the earlier live overview check, while Steps 21-24 use controlled responses and local HTTP fixtures.
 
 ### Frontend files and dependencies
 
 - `index.html` supplies the page title and the `root` element where React mounts.
 - `src/main.jsx` mounts React with `createRoot()`. `StrictMode` helps detect development issues; `BrowserRouter` enables navigation without full page reloads.
-- `src/App.jsx` nests Overview (`/`), Agents (`/agents`), Agent details (`/agents/:id`), and the unknown-page route inside `DashboardLayout`. Page containers subscribe to request state and load/cancel it through React effects. The overview view renders summary cards and recent registrations. `components/agents/` contains the search/filter form, results states/pagination, responsive table, inline creation form, and detail view.
+- `src/App.jsx` nests Overview (`/`), Agents (`/agents`), Agent details (`/agents/:id`), Edit agent (`/agents/:id/edit`), and the unknown-page route inside `DashboardLayout`. Page containers subscribe to request state and load/cancel it through React effects. The overview view renders summary cards and recent registrations. `components/agents/` contains the search/filter form, results states/pagination, responsive table, shared create/edit field rendering, detail view, and delete confirmation.
 - `components/layout/Brand.jsx` shares the FleetFlow logo and subtitle. `Sidebar.jsx` exports the shared navigation and desktop sidebar. `Header.jsx` uses that same navigation for a mobile disclosure. `DashboardLayout.jsx` owns the menu state, responsive reset, Escape handler, skip link, page title, and React Router `Outlet`, which displays the selected page.
 - `src/index.css` imports Tailwind and defines the system font, visible keyboard focus outlines, and wrapping for long text. `vite.config.js` registers the React and Tailwind plugins. This follows the officially supported [Tailwind Vite setup](https://tailwindcss.com/docs/installation/using-vite); no legacy `tailwindcss init`, separate PostCSS configuration, or Autoprefixer package is needed.
 - `src/lib/api.js` is the existing shared Axios client. The overview and agents services map the actual API responses. The existing request lifecycle was extracted unchanged into `state/requestResource.js` so both pages share loading/success/error, cancellation, retry, and late-response protection. `overviewResource.js` preserves its existing export as an alias; `agentsResource.js` adds applied query state, page resets, and server-bound pagination. React uses `useSyncExternalStore` to subscribe to the same logic tested directly by Node. No authentication or interceptors were added.
@@ -247,7 +250,7 @@ For future regression checks, run `npm run dev` inside `client/`, then use brows
 | 1280×800 and 1440×900 | Persistent sidebar/header, consistent spacing, and bounded content width |
 | 200% browser zoom | Navigation switches at the effective CSS width and text remains usable |
 
-At each relevant size, check that `document.documentElement.scrollWidth <= window.innerWidth`. Use Tab to reach Skip to content, activate it, and confirm focus moves to the main content. Below the desktop breakpoint, use Enter/Space on the menu control, check expanded/collapsed state, and press Escape to confirm the menu closes and focus returns to its button. Reopen it and select Overview or Agents to check the same close behavior. Open the menu, resize to desktop and back, and verify it stays closed. Check active navigation styling on both routes. Load an unknown URL and follow Return to Overview. On Agents, horizontal scrolling should stay inside the labelled table region; row View/Edit/Delete controls remain disabled for later steps.
+At each relevant size, check that `document.documentElement.scrollWidth <= window.innerWidth`. Use Tab to reach Skip to content, activate it, and confirm focus moves to the main content. Below the desktop breakpoint, use Enter/Space on the menu control, check expanded/collapsed state, and press Escape to confirm the menu closes and focus returns to its button. Reopen it and select Overview or Agents to check the same close behavior. Open the menu, resize to desktop and back, and verify it stays closed. Check active navigation styling on both routes. Load an unknown URL and follow Return to Overview. On Agents, horizontal scrolling should stay inside the labelled table region; View/Edit open their routes, and Delete must open confirmation without sending a deletion request.
 
 The project owner confirmed manual browser verification passed at 320px, 390px, 768px, 1024px, and 1440px: mobile menu open/close, Escape closing the menu and returning focus, Tab navigation, resizing across 1024px, and no horizontal overflow all passed. This browser verification was performed by the project owner, not the agent. Step 19 is COMPLETE; Steps 20-30 remain pending. No metrics, tables, forms, user profiles, fake data, API calls, or new dependencies were added.
 
@@ -1359,4 +1362,55 @@ Suggested Step 23 commit message after review:
 
 ```text
 feat: add agent details view
+```
+
+## Step 24 Edit and delete agents
+
+Choose **Edit** in an Agents row or on the detail page to open `/agents/:id/edit`. The page loads the selected record through the existing detail GET before prefilling the form. It uses the same MongoDB public record ID as the detail API. Invalid IDs, missing records, failed loads, and retry reuse the existing detail states. The dashboard header reads Edit agent and Agents stays active in navigation.
+
+The shared form now supports edit mode. Full name, phone, email, service area, and status are editable; business Agent ID is read-only, and database IDs/timestamps are never submitted. Existing required-string, trim, email lowercase/format, and active/inactive rules are reused. The existing inactive status is preserved, not defaulted to active. No extra phone restrictions or new fields are introduced.
+
+`validation/agentMutations.js` normalizes the complete draft and compares it with the loaded record, producing only changed editable fields. A one-field edit sends a one-field PATCH, so omitted fields are preserved. An unchanged draft shows No changes to save without making a request. `agentsService.updateAgent()` uses the existing HTTP 200 `{ success: true, data: agent }` contract and public-field checker. Identifiers and the returned record ID are checked consistently with detail loading.
+
+`EditAgentForm.jsx` uses `AddAgentFormView` with edit labels and read-only ID behavior. It focuses Full name on opening and the alert summary after errors. Save and Cancel are disabled during submission; a synchronous state guard also blocks repeated PATCH calls. Validation/server errors retain all draft values, map known editable field errors, and show safe messages for 404, 409, oversized forms, network errors, timeouts, or unexpected failures. There are no automatic mutation retries. A lost response can mean an update succeeded, so feedback asks you to check details before retrying.
+
+After confirmed success, navigation replaces the edit entry with the agent detail route, displays confirmation, and starts a fresh detail GET. Returning to Agents starts its existing fresh list GET. There is no global frontend query cache to invalidate: detail/edit/list resources are scoped to mounted pages. Existing backend Redis invalidation is unchanged. If a follow-up GET fails, the successful mutation remains acknowledged and Try again retries only that GET. Navigating away during a pending write does not automatically abort or undo it, and its late completion cannot force navigation back.
+
+### Delete confirmation
+
+Delete is enabled in table rows and on loaded detail pages. Opening it identifies the agent by name and business ID and describes permanent deletion; opening or cancelling sends no DELETE. `DeleteAgentDialog.jsx` uses a native modal `<dialog>` with an accessible name/description. The browser contains focus and makes the background inert. Cancel receives initial focus; Cancel or Escape dismisses before submission. Closing restores focus to the trigger when it still exists, otherwise to the shared main content. The dialog and buttons fit small viewports and allow scrolling for long text.
+
+Only **Delete agent** sends the existing DELETE `/api/agents/:id`, and only HTTP 204 counts as success; no JSON body is expected. During submission, both buttons are disabled and Escape cannot dismiss the pending confirmation. A state guard blocks repeated requests. Failures remain inside the confirmation with safe feedback; no success navigation or list refresh runs after a failed DELETE. A 404 explains the record is missing and disables repeated deletion; Close remains available. Other failures can be explicitly retried or cancelled.
+
+After a table deletion, the dialog closes, success is announced, and a new list GET retains applied filters and page. The existing Back to first page recovery handles an emptied later page. Deleting the currently viewed agent navigates with replacement to `/agents`, displays confirmation, and loads a fresh list. It does not leave the deleted detail view active. Success notices use navigation state and may reappear when revisiting that browser history entry.
+
+`state/agentMutationResources.js` keeps the edit and confirmation states independently testable, including pending/success guards, retained drafts, and completion callbacks. A failed reload or callback never makes an already confirmed mutation resubmittable. The existing create flow and its tests remain intact.
+
+### Step 24 verification and limitations
+
+Commands run inside `client/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/agent-mutations.test.js test/create-agent.test.js test/agent-detail.test.js test/agents.test.js test/layout.test.js` | Final run: 77 passed, 0 failed, 0 skipped. The initial run had one failing assertion because it assumed HTML attribute order; the assertion now checks the read-only identifier input independently. |
+| `npm test` | Final full suite: 91 passed, 0 failed, 0 skipped |
+| `npm run build` | Passed with Vite 8.3.4; all changed JSX compiled and generated output stays ignored |
+| `node --check src/services/agentsService.js` | Passed |
+| `node --check src/state/agentMutationResources.js` | Passed |
+| `node --check src/validation/agentMutations.js` | Passed |
+| `node --check test/agent-mutations.test.js` | Passed |
+| `node --check test/agent-detail.test.js` | Passed |
+| `node --check test/agents.test.js` | Passed |
+| `node --check test/layout.test.js` | Passed |
+
+From the repository root, `git diff --check` passed. The 25 new mutation tests cover prefilling, immutable fields, normalization/partial payloads, unchanged/invalid edits, confirmed updates, retained errors/retries, pending guards, confirmation/cancellation, DELETE 204, missing records, safe failure messages, success/refresh separation, list retry with preserved filters, route destination notices, and actual Axios GET/PATCH/GET/DELETE/list requests against an isolated HTTP fixture. A new shell test verifies edit routing/loading/invalid IDs; existing table/detail tests now expect enabled Edit/Delete. All previous creation, overview, request lifecycle, and proxy regressions continue passing.
+
+The fixture persists changes only in its disposable in-memory record; no live MongoDB persistence or Redis integration was tested. React render tests and direct resource tests do not execute browser DOM events or verify native modal focus, Escape, resizing, or navigation effects interactively. For manual review, use a disposable test agent with your configured backend, run `npm run dev` in `client/`, and check 320/390/768/1024/1440px widths. Verify prefilled values, immutable ID, required-field errors, one-field saves, confirmation after reload, failed saves retaining inputs, Cancel/Escape without a DELETE, modal Tab containment and focus return, confirmed deletion from both list and details, and recovery when the API is unavailable.
+
+Step 24 is COMPLETE; Steps 25-30 remain PENDING. Backend code, contracts, dependencies, lockfiles, and configuration are unchanged; backend tests were not rerun. The configured live backend was not started and `server/.env` was not accessed. Nothing was staged or committed.
+
+Suggested Step 24 commit message after review:
+
+```text
+feat: add agent editing and deletion UI
 ```

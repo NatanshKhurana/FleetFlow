@@ -20,7 +20,7 @@ function Pagination({ pagination, shown, onPageChange }) {
   );
 }
 
-export default function AgentsContent({ state, query, onApply, onClear, onPageChange, onRetry }) {
+export default function AgentsContent({ state, query, onApply, onClear, onPageChange, onRetry, onDelete }) {
   const filtered = Boolean(query.search || query.status || query.serviceArea);
   const result = state.data;
   return (
@@ -43,7 +43,7 @@ export default function AgentsContent({ state, query, onApply, onClear, onPageCh
           </div>
         ) : (
           <>
-            {result.agents.length ? <AgentsTable agents={result.agents} /> : (
+            {result.agents.length ? <AgentsTable agents={result.agents} onDelete={onDelete} /> : (
               <div role="status" className="p-8 text-center sm:p-12">
                 <SearchX size={28} className="mx-auto mb-4 text-emerald-700" aria-hidden="true" />
                 <h3 className="font-semibold">{result.pagination.total > 0 ? 'No agents on this page' : filtered ? 'No matching agents' : 'No agents yet'}</h3>

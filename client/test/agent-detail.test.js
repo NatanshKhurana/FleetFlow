@@ -82,7 +82,9 @@ test('the table View link targets the public database ID and resolves to the ded
   assert.match(destination, /Agent details/);
   assert.match(destination, /Loading agent details/);
   assert.match(destination, /Back to Agents/);
-  for (const action of ['Edit', 'Delete']) assert.match(html, new RegExp(`disabled="" aria-label="${action} agent \\(coming soon\\)"`));
+  assert.match(html, new RegExp(`href="/agents/${id}/edit"`));
+  assert.match(html, /aria-label="Delete agent AGENT-001"/);
+  assert.doesNotMatch(html, /coming soon/);
 });
 
 test('successful detail rendering shows all public fields with labelled, responsive UTC timestamps and status', () => {

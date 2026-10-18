@@ -116,7 +116,10 @@ test('table renders existing agent fields, accessible headings, safe text, and u
   assert.match(html, /&lt;script&gt;Alex&lt;\/script&gt;/);
   assert.match(html, /href="\/agents\/000000000000000000000001"/);
   assert.match(html, /aria-label="View agent AGENT-001"/);
-  for (const action of ['Edit', 'Delete']) assert.match(html, new RegExp(`disabled="" aria-label="${action} agent \\(coming soon\\)"`));
+  assert.match(html, /href="\/agents\/000000000000000000000001\/edit"/);
+  assert.match(html, /aria-label="Edit agent AGENT-001"/);
+  assert.match(html, /aria-label="Delete agent AGENT-001"/);
+  assert.doesNotMatch(html, /coming soon|disabled="" aria-label="Delete agent/);
   assert.doesNotMatch(html, /<script>|__v|View agent \(coming soon\)/);
 });
 

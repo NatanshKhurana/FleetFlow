@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-23 are **COMPLETE** and Steps 24-30 remain **PENDING**. Step 22 is committed as `7ce23a9`; earlier steps retain their existing commits. Step 23 adds the Agent details route at /agents/:id, accessible table View links, all public fields and UTC timestamps, safe invalid/not-found/error states, and retry using the existing GET endpoint and shared request lifecycle. Verification passed: 37 focused tests, all 65 frontend tests, production build, syntax checks, and Git checks. Browser interaction/viewport checks and live detail API verification were not performed in Step 23; tests use controlled requests and an isolated HTTP fixture. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. Edit/Delete remain disabled for later steps. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-24 are **COMPLETE** and Steps 25-30 remain **PENDING**. Step 23 is committed as `9e1f9a6`; earlier steps retain their existing commits. Step 24 enables prefilled editing at /agents/:id/edit and confirmed deletion from the table/detail page, using only the existing PATCH/DELETE contracts. Editable-field validation, partial updates, retained drafts, duplicate-submit guards, safe errors, confirmation/cancellation, success feedback, and fresh list/detail GETs are implemented. Verification passed: 77 focused tests, all 91 frontend tests, production build, syntax checks, and Git checks. The initial focused run caught one test assertion that assumed HTML attribute order; it was corrected and all affected checks passed. Browser DOM/modal/viewport verification and live MongoDB/Redis persistence were not performed; automated tests use controlled requests and a disposable in-memory HTTP fixture. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -218,7 +218,7 @@ Acceptance criteria: Details are fetched from the API and missing records displa
 Commit: feat: add agent details view
 
 ### Step 24 — Build Edit and Delete flows
-Status: PENDING
+Status: COMPLETE
 
 Objective: Implement the prefilled edit form and delete confirmation dialog.
 

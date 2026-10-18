@@ -1,4 +1,4 @@
-import { ArrowLeft, RefreshCw, UserRound } from 'lucide-react';
+import { ArrowLeft, Pencil, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { Link } from 'react-router';
 
 const date = new Intl.DateTimeFormat('en', {
@@ -38,12 +38,22 @@ function AgentInformation({ agent }) {
   </div>;
 }
 
-export default function AgentDetailContent({ state, onRetry }) {
+export default function AgentDetailContent({ state, onRetry, onDelete }) {
   const kind = state.data?.kind;
   return <div className="min-w-0 space-y-5">
     <Link to="/agents" className="inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-medium text-emerald-700 underline underline-offset-4">
       <ArrowLeft size={17} aria-hidden="true" />Back to Agents
     </Link>
+    {state.status === 'success' && kind === 'found' && <div className="flex flex-wrap gap-3">
+      <Link to={`/agents/${encodeURIComponent(state.data.agent.id)}/edit`}
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700">
+        <Pencil size={17} aria-hidden="true" />Edit agent
+      </Link>
+      <button type="button" onClick={() => onDelete(state.data.agent)}
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700">
+        <Trash2 size={17} aria-hidden="true" />Delete agent
+      </button>
+    </div>}
     <section aria-labelledby="agent-information-title" aria-busy={state.status === 'loading'}
       className="min-w-0 rounded-2xl border border-slate-200 bg-white">
       <div className="flex items-center gap-3 border-b border-slate-100 p-5 sm:px-8">

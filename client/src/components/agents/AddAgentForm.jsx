@@ -8,17 +8,19 @@ const inputClass = 'mt-2 min-h-11 w-full min-w-0 rounded-lg border border-slate-
 const inputTypes = { phone: 'tel', email: 'email' };
 const autocomplete = { fullName: 'name', phone: 'tel', email: 'email' };
 
-export function AddAgentFormView({ state, onChange, onSubmit, onCancel, firstFieldRef, errorRef }) {
+export function AddAgentFormView({ state, onChange, onSubmit, onCancel, firstFieldRef, errorRef, editing = false }) {
   const pending = state.status === 'submitting';
   const failed = ['invalid', 'error'].includes(state.status);
+  const prefix = editing ? 'edit-agent' : 'new-agent';
+  const title = editing ? 'Edit agent' : 'Add new agent';
   return (
     <section aria-labelledby="add-agent-title" className="min-w-0 rounded-2xl border border-emerald-200 bg-white p-5 sm:p-6">
       <div className="mb-6 flex items-start gap-3">
         <UserPlus size={22} className="mt-1 shrink-0 text-emerald-700" aria-hidden="true" />
-        <div><h2 id="add-agent-title" className="text-lg font-semibold text-slate-900">Add new agent</h2>
-          <p id="add-agent-help" className="mt-1 text-sm leading-6 text-slate-500">Build your delivery team. Fields marked * are required.</p></div>
+        <div><h2 id="add-agent-title" className="text-lg font-semibold text-slate-900">{title}</h2>
+          <p id="add-agent-help" className="mt-1 text-sm leading-6 text-slate-500">{editing ? 'Update this agent’s information.' : 'Build your delivery team.'} Fields marked * are required.</p></div>
       </div>
-      <form aria-label="Add new agent" aria-describedby="add-agent-help" aria-busy={pending} noValidate
+      <form aria-label={title} aria-describedby="add-agent-help" aria-busy={pending} noValidate
         onSubmit={(event) => { event.preventDefault(); void onSubmit(); }}>
         {failed && <div ref={errorRef} tabIndex={-1} role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{state.message}</div>}
         <fieldset disabled={pending || state.status === 'success'} className="min-w-0">
@@ -26,23 +28,23 @@ export function AddAgentFormView({ state, onChange, onSubmit, onCancel, firstFie
           <div className="grid min-w-0 gap-5 sm:grid-cols-2">
             {Object.entries(agentFieldLabels).map(([field, label]) => {
               const error = state.fieldErrors[field];
-              const helpId = field === 'agentId' ? 'new-agent-id-help' : field === 'status' ? 'new-agent-status-help' : '';
-              const describedBy = [helpId, error ? `new-agent-${field}-error` : ''].filter(Boolean).join(' ') || undefined;
-              const common = { id: `new-agent-${field}`, name: field, value: state.values[field] ?? '',
+              const helpId = field === 'agentId' ? `${prefix}-id-help` : field === 'status' ? `${prefix}-status-help` : '';
+              const describedBy = [helpId, error ? `${prefix}-${field}-error` : ''].filter(Boolean).join(' ') || undefined;
+              const common = { id: `${prefix}-${field}`, name: field, value: state.values[field] ?? '',
                 onChange: (event) => onChange(field, event.target.value), className: inputClass,
                 'aria-invalid': error ? true : undefined, 'aria-describedby': describedBy };
               return <div key={field} className="min-w-0">
-                <label htmlFor={common.id} className="text-sm font-medium text-slate-700">{label}{field !== 'status' && <span aria-hidden="true"> *</span>}</label>
+                <label htmlFor={common.id} className="text-sm font-medium text-slate-700">{label}{field !== 'status' && !(editing && field === 'agentId') && <span aria-hidden="true"> *</span>}</label>
                 {field === 'status' ? <select {...common}><option value="active">Active</option><option value="inactive">Inactive</option></select>
-                  : <input {...common} ref={field === 'agentId' ? firstFieldRef : undefined} type={inputTypes[field] || 'text'} required autoComplete={autocomplete[field] || 'off'} />}
-                {field === 'agentId' && <p id={helpId} className="mt-2 text-xs leading-5 text-slate-500">Enter a unique business ID for this agent.</p>}
-                {field === 'status' && <p id={helpId} className="mt-2 text-xs leading-5 text-slate-500">New agents start as Active unless you choose Inactive.</p>}
-                {error && <p id={`new-agent-${field}-error`} className="mt-2 text-sm text-red-700">{error}</p>}
+                  : <input {...common} readOnly={editing && field === 'agentId'} ref={field === (editing ? 'fullName' : 'agentId') ? firstFieldRef : undefined} type={inputTypes[field] || 'text'} required autoComplete={autocomplete[field] || 'off'} />}
+                {field === 'agentId' && <p id={helpId} className="mt-2 text-xs leading-5 text-slate-500">{editing ? 'The business agent ID cannot be changed.' : 'Enter a unique business ID for this agent.'}</p>}
+                {field === 'status' && <p id={helpId} className="mt-2 text-xs leading-5 text-slate-500">{editing ? 'Choose Active or Inactive.' : 'New agents start as Active unless you choose Inactive.'}</p>}
+                {error && <p id={`${prefix}-${field}-error`} className="mt-2 text-sm text-red-700">{error}</p>}
               </div>;
             })}
           </div>
           <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-100 pt-5">
-            <button type="submit" className="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">{pending ? 'Saving agent…' : 'Create agent'}</button>
+            <button type="submit" className="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">{pending ? 'Saving agent…' : editing ? 'Save changes' : 'Create agent'}</button>
             <button type="button" onClick={onCancel} className="min-h-11 rounded-lg border border-slate-200 px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
           </div>
         </fieldset>

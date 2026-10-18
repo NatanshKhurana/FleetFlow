@@ -61,8 +61,16 @@ test('malformed detail route IDs show safe feedback; a missing segment remains t
   assert.match(render(App, {}, '/agents/'), /Loading agents/);
 });
 
-test('extra path segments do not become unfinished edit or delete pages', () => {
+test('edit route uses the dashboard shell and fetches the selected agent before showing the form', () => {
   const html = render(App, {}, '/agents/000000000000000000000001/edit');
+  assert.match(html, /<h1[^>]*>Edit agent<\/h1>/);
+  assert.match(html, /Loading agent details/);
+  assert.match(html, /aria-current="page"[^>]*href="\/agents"/);
+  assert.match(render(App, {}, '/agents/invalid/edit'), /Invalid agent link/);
+});
+
+test('unknown extra path segments remain page-not-found screens', () => {
+  const html = render(App, {}, '/agents/000000000000000000000001/history');
   assert.match(html, /<h1[^>]*>Page not found<\/h1>/);
   assert.doesNotMatch(html, /Loading agent details/);
 });
