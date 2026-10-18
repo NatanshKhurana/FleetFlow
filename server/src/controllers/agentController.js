@@ -2,7 +2,7 @@ import Agent from '../models/Agent.js';
 import { ApiError } from '../utils/ApiError.js';
 
 function publicAgent(agent) {
-  // Both endpoints expose the same fields, without Mongoose internals.
+  // All agent endpoints expose the same fields, without Mongoose internals.
   return {
     id: agent._id.toString(),
     agentId: agent.agentId,
@@ -70,6 +70,27 @@ export async function listAgents(request, response, next) {
       message: 'Agents retrieved successfully',
       data: agents.map(publicAgent),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getAgentById(request, response, next) {
+  try {
+    const agent = await Agent.findById(request.validated.params.id)
+      .select('agentId fullName phone email serviceArea status createdAt updatedAt')
+      .lean()
+      .exec();
+
+    if (!agent) {
+      return next(new ApiError(404, 'Agent not found'));
+    }
+
+    return response.status(200).json({
+      success: true,
+      message: 'Agent retrieved successfully',
+      data: publicAgent(agent),
     });
   } catch (error) {
     return next(error);

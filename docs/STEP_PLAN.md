@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-8 are **COMPLETE** after verification; Steps 9-30 remain **PENDING**. Steps 1-7 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, and `d516a14`. Step 8 list/create checks and all 49 automated tests passed with database calls mocked; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-9 are **COMPLETE** after verification; Steps 10-30 remain **PENDING**. Steps 1-8 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, and `e50b52d`. Step 9 detail/create/list checks and all 54 automated tests passed with database calls mocked; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -79,7 +79,7 @@ Acceptance criteria: Results and pagination metadata are correct, with validated
 Commit: feat: implement agent listing endpoint
 
 ### Step 9 — Get individual agent
-Status: PENDING
+Status: COMPLETE
 
 Objective: Implement GET /api/agents/:id.
 

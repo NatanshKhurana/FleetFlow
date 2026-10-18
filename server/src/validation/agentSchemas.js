@@ -11,6 +11,11 @@ export const createAgentSchema = z.strictObject({
   status: z.string().trim().pipe(z.enum(['active', 'inactive'])).optional(),
 });
 
+// :id means the public MongoDB ObjectId, not the business agentId string.
+export const agentParamsSchema = z.strictObject({
+  id: z.string().regex(/^[a-fA-F0-9]{24}$/),
+});
+
 // Query values must be single decimal strings, not arrays or coercible objects.
 const positiveQueryInteger = z.string().trim().regex(/^[1-9]\d*$/)
   .transform(Number).pipe(z.number().int().positive());
