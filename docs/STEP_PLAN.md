@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-17 are **COMPLETE** after verification; Steps 18-30 remain **PENDING**. Steps 1-15 retain their existing commits; Step 16 is committed as `b8f8ec9`, with status documentation committed as `95aeef9`. The project owner separately verified real Redis Cloud connectivity and PING/PONG using `node scripts/verify-redis.js`. Step 17 passed 66 focused tests and all 128 server tests with fake Redis and mocked MongoDB, plus syntax checks and git diff --check. The optional real Redis cache script was added, but only its missing-configuration guard was run; live caching/invalidation remains unverified. Step 17 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-18 are **COMPLETE** after verification; Steps 19-30 remain **PENDING**. Steps 1-16 retain their existing commits; Step 17 is committed as `f4d9846`. Step 18 passed the production build, dependency/syntax checks, development and preview HTTP checks, React route rendering, Axios configuration checks, and Git checks. No interactive browser was available, and no frontend API integration was performed. Step 18 changes await review and have not been committed. Earlier live Redis PING/PONG verifies connectivity only; live cache integration remains unverified. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -164,7 +164,7 @@ Commit: test: verify Redis caching and consistency
 ## Phase 4: React Frontend
 
 ### Step 18 — Set up React frontend
-Status: PENDING
+Status: COMPLETE
 
 Objective: Configure Vite, React Router, Tailwind CSS, Axios, and the frontend entry point.
 

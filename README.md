@@ -22,11 +22,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 14 is COMPLETE and committed locally as `0977418` (`feat: cache agent list responses in Redis`). Live list-cache behavior has not been tested by the agent.
 - Step 15 is COMPLETE and committed locally as `09580c8` (`feat: cache individual agent responses`). Live detail-cache behavior has not been tested by the agent.
 - Step 16 is COMPLETE and committed as `b8f8ec9` (`fix: invalidate stale agent cache entries`), with status documentation committed as `95aeef9`. Its verification results remain recorded below.
-- Step 17 is COMPLETE after 66 focused tests, all 128 server tests, and syntax/diff checks passed. Changes remain uncommitted for review; live cache verification has not been run.
-- Steps 18-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 17 is COMPLETE and committed as `f4d9846` (`test: verify Redis caching and consistency`). Live cache verification has not been run.
+- Step 18 is COMPLETE: React/Vite, Tailwind, React Router, Axios configuration, and Lucide are installed; production build and development/preview checks passed. Changes are uncommitted for review.
+- Steps 19-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
+- `client/` contains the React/Vite frontend foundation and a FleetFlow placeholder page. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
@@ -64,7 +65,18 @@ Server: Node.js + Express + Zod
 
 ```text
 FleetFlow/
-|-- client/                  Empty; future browser application
+|-- client/
+|   |-- .env.example          Public API base URL example
+|   |-- .gitignore            Local dependencies, builds, and environment files
+|   |-- package.json          Frontend dependencies and commands
+|   |-- package-lock.json     Exact resolved dependency versions
+|   |-- index.html            Browser document with the React mount point
+|   |-- vite.config.js        React and Tailwind Vite plugins
+|   `-- src/
+|       |-- main.jsx          React entry point and browser router
+|       |-- App.jsx           Placeholder route and unknown-page fallback
+|       |-- index.css         Tailwind import
+|       `-- lib/api.js        Configured Axios client; no API calls yet
 |-- server/
 |   |-- .env.example         Safe backend configuration template
 |   |-- package.json         Server dependencies and commands
@@ -125,11 +137,58 @@ FleetFlow/
 `-- .env.example             Safe configuration placeholders
 ```
 
-Git does not track empty folders. `client/` exists locally and will appear in Git when a later approved step adds files to it. `server/node_modules/` contains installed packages locally and is ignored by Git.
+Client source files and package lockfiles belong in Git. Both package directories' `node_modules/`, local environment files, and frontend `dist/` output are ignored; `.env.example` files remain trackable.
 
 ## Development workflow
 
 Before every future step, read [the development rules](docs/DEVELOPMENT_RULES.md) and [the step plan](docs/STEP_PLAN.md). Implement only the current step requested by the project owner. Update this README with actual progress and record the checks performed before requesting review.
+
+## Frontend setup and commands
+
+Use Node.js 24 or newer and npm, matching the backend convention. The frontend is a separate package inside `client/`; run these PowerShell commands from the repository root:
+
+```powershell
+cd client
+npm ci
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+npm run dev
+```
+
+Open the local URL printed by Vite, normally `http://localhost:5173`. If that port is occupied, Vite may select the next available port. The FleetFlow placeholder works without starting MongoDB, Redis, or the backend. Stop Vite with Ctrl+C. For a fresh checkout, `npm ci` installs the exact versions in `client/package-lock.json`.
+
+| Command inside `client/` | Purpose |
+| --- | --- |
+| `npm run dev` | Start Vite with development updates when files change |
+| `npm run build` | Compile the frontend into `client/dist/` for production |
+| `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
+
+`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs. Only the home placeholder and a minimal unknown-page fallback exist in this step; dashboard layout and agent screens remain planned.
+
+### Frontend configuration
+
+`client/.env.example` documents the safe local value:
+
+```dotenv
+VITE_API_BASE_URL=http://localhost:5000/api
+```
+
+`src/lib/api.js` uses `axios.create()` to export one reusable HTTP client with this base URL and a 10-second request timeout. It reads `import.meta.env.VITE_API_BASE_URL`; missing or blank values fall back to the same local URL. A future relative request such as `/agents` will target `/api/agents`. Change the port to match your privately configured backend PORT if it differs from the example, then restart Vite. Build-time changes require a fresh production build.
+
+Vite loads client environment files automatically. **Every `VITE_*` value is public browser configuration** and can be included in built assets. Never copy server database/Redis URLs, passwords, or secret tokens into client environment files. The client does not load the private backend environment file. See [Vite environment documentation](https://vite.dev/guide/env-and-mode).
+
+No API requests are made by the placeholder, and no backend CORS or development proxy changes are included. When API integration is implemented later, cross-origin requests from the Vite port to Express will need an appropriate CORS or proxy setup. A frontend build does not verify backend connectivity.
+
+### Frontend files and dependencies
+
+- `index.html` supplies the page title and the `root` element where React mounts.
+- `src/main.jsx` mounts React with `createRoot()`. `StrictMode` helps detect development issues; `BrowserRouter` enables navigation without full page reloads.
+- `src/App.jsx` selects the home placeholder or an unknown-page message using `Routes` and `Route`. The home page uses a Lucide truck icon and Tailwind utility classes. The fallback includes a keyboard-accessible home link.
+- `src/index.css` imports Tailwind. `vite.config.js` registers the React and Tailwind plugins. This follows the officially supported [Tailwind Vite setup](https://tailwindcss.com/docs/installation/using-vite); no legacy `tailwindcss init`, separate PostCSS configuration, or Autoprefixer package is needed.
+- `src/lib/api.js` configures Axios for later reuse. No authentication, interceptors, or agent service functions have been added.
+- `package.json` declares ES modules, Node requirements, dependencies, and scripts. `package-lock.json` records the exact installed dependency tree.
+- `client/.gitignore` complements the root ignore rules for dependencies, build output, tool caches, logs, editor settings, and local environment files. The safe `.env.example` stays trackable.
+
+React and React DOM render the page; React Router provides declarative routing; Axios prepares HTTP access; Lucide React provides icons. Vite, its React plugin, Tailwind CSS, and its Vite plugin are development/build dependencies. The [React Router installation guide](https://reactrouter.com/start/declarative/installation) uses the `react-router` package directly, so `react-router-dom` is not installed.
 
 ## Backend setup and commands
 
@@ -1015,8 +1074,31 @@ Actual commands run inside `server/` on October 18, 2026:
 
 `git diff --check` from the repository root passed. All automated cache/CRUD checks used fake Redis and mocked MongoDB. Only the optional script's missing-configuration guard was executed; no live cache integration was performed. Production code and dependencies are unchanged. No private `.env` was read or modified, and no files were staged or committed. Step 17 acceptance criteria passed; Steps 18-30 remain pending.
 
-After review, the suggested Step 17 commit message for you to execute is:
+## Step 18 verification
+
+Verification used Node.js v24.19.0 and npm 11.7.0 on October 18, 2026. Commands below ran inside `client/`:
+
+| Command | Actual result |
+| --- | --- |
+| `npm install react@19.3.1 react-dom@19.3.1 react-router@8.4.0 axios@1.20.0 lucide-react@1.59.0` | Added 34 packages; audit reported 0 vulnerabilities |
+| `npm install -D vite@8.3.4 @vitejs/plugin-react@6.1.2 tailwindcss@4.3.3 @tailwindcss/vite@4.3.3` | Added 33 packages; final audit covered 68 packages with 0 vulnerabilities |
+| `npm run build` | Passed with Vite 8.3.4; generated HTML, CSS, and JavaScript in ignored `dist/` |
+| `npm ls --depth=0` | All nine direct dependencies resolved with no dependency conflicts |
+| `node --check vite.config.js` | Passed |
+| `node --check src/lib/api.js` | Passed; JSX compilation was checked by the production build |
+| `npm run dev -- --host 127.0.0.1 --port 5173 --strictPort` | Started successfully on port 5173 |
+| PowerShell here-string piped to `node --input-type=module` | Native fetch checks returned HTTP 200 for `/`, `/src/main.jsx`, `/src/index.css`, and `/src/lib/api.js`; Vite SSR module loading plus React server rendering verified home text, Lucide SVG, and the fallback route's home link. Axios defaults, blank configuration fallback, custom API URL, and 10-second timeout passed. Built CSS contained the expected Tailwind utility rules. |
+| `npm run preview -- --host 127.0.0.1 --port 4173 --strictPort` | Started successfully on port 4173 |
+| Second PowerShell here-string piped to `node --input-type=module` | Preview HTML and its compiled JavaScript/CSS assets all returned HTTP 200 |
+
+Installed versions are React/React DOM 19.3.1, React Router 8.4.0, Axios 1.20.0, Lucide React 1.59.0, Vite 8.3.4, React Vite plugin 6.1.2, and Tailwind CSS/Vite plugin 4.3.3. Registry engine and peer-dependency requirements were checked against the installed Node and package versions before installation. The temporary SSR verification used Vite's still-supported `envFile: false` option, which emitted a deprecation warning recommending `envDir: false`; application configuration does not use that option.
+
+From the root, `git check-ignore -v` confirmed that client dependencies, `dist/`, local `.env` files, tool caches, logs, and editor files are ignored. `git ls-files --others --exclude-standard client` showed only the ten intended source/configuration/lock/example files. `git diff --check` passed, and the Git index is empty. Both verification servers were stopped afterward.
+
+No browser was connected to this session, so interactive browser behavior and visual appearance were not inspected. React rendering was checked directly without a DOM. No API requests or live service checks were made, and the backend test suite was not rerun because backend files are unchanged. No frontend test runner or linter was added for this minimal setup; build, configuration, render, HTTP, and ignore checks are the verification performed. The private backend environment file was not accessed or modified. No files were staged or committed. Step 18 acceptance criteria passed; Steps 19-30 remain pending.
+
+After review, the suggested Step 18 commit message for you to execute is:
 
 ```text
-test: verify Redis caching and consistency
+feat: set up React dashboard application
 ```
