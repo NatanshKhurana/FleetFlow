@@ -10,3 +10,18 @@ export const createAgentSchema = z.strictObject({
   // Leave the default to the existing Mongoose model.
   status: z.string().trim().pipe(z.enum(['active', 'inactive'])).optional(),
 });
+
+// Query values must be single decimal strings, not arrays or coercible objects.
+const positiveQueryInteger = z.string().trim().regex(/^[1-9]\d*$/)
+  .transform(Number).pipe(z.number().int().positive());
+
+export const listAgentsSchema = z.strictObject({
+  page: positiveQueryInteger.default(1),
+  limit: positiveQueryInteger.pipe(z.number().max(100)).default(10),
+  search: z.string().trim().max(200).optional(),
+  status: z.string().trim().pipe(z.enum(['active', 'inactive'])).optional(),
+  serviceArea: z.string().trim().optional(),
+}).refine((query) => Number.isSafeInteger((query.page - 1) * query.limit), {
+  path: ['page'],
+  message: 'The requested pagination offset is too large.',
+});

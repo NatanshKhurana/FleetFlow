@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-7 are **COMPLETE** after verification; Steps 8-30 remain **PENDING**. Steps 1-6 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, and `772929d`. Step 7 create-agent checks, all 40 automated tests, isolated Atlas persistence, and real startup passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-8 are **COMPLETE** after verification; Steps 9-30 remain **PENDING**. Steps 1-7 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, and `d516a14`. Step 8 list/create checks and all 49 automated tests passed with database calls mocked; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -70,7 +70,7 @@ Acceptance criteria: Valid agents are saved, IDs are generated safely, invalid i
 Commit: feat: implement agent creation endpoint
 
 ### Step 8 — List agents API
-Status: PENDING
+Status: COMPLETE
 
 Objective: Implement GET /api/agents with pagination, search, and status/service-area filters.
 

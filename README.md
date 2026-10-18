@@ -4,7 +4,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The backend supports creating delivery agents with `POST /api/agents`.** It connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. List, read, update, delete, and frontend workflows have not been implemented yet.
+**The backend supports creating agents with `POST /api/agents` and listing them with `GET /api/agents`.** Listing includes pagination, search, and filters. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. Single-agent read, update, delete, and frontend workflows have not been implemented yet.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
@@ -12,11 +12,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 4 is COMPLETE and committed locally as `9e814f5` (`feat: connect application to MongoDB`).
 - Step 5 is COMPLETE and committed locally as `4fa2766` (`feat: define delivery agent data model`).
 - Step 6 is COMPLETE and committed locally as `772929d` (`feat: add request validation and API errors`).
-- Step 7 is COMPLETE after all 40 automated tests, an isolated real-persistence check, and MongoDB-gated startup verification passed. Its changes await review and remain uncommitted.
-- Steps 8-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
-- The server exposes health and create-agent endpoints with consistent JSON error responses.
+- Step 7 is COMPLETE and committed locally as `d516a14` (`feat: add create agent API`).
+- Step 8 is COMPLETE after list/create regression checks and all 49 automated tests passed. Its changes await review and remain uncommitted.
+- Steps 9-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- The server exposes health, create-agent, and list-agent endpoints with consistent JSON error responses.
 - Express, dotenv, Zod, and Mongoose are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. Only the create-agent CRUD endpoint is implemented; there is no authentication or Redis connection.
+- `client/` remains empty. Create and list operations are implemented; there is no authentication or Redis connection.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional until Step 13.
 
 ## Planned technology stack
@@ -34,7 +35,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents is implemented with request validation and safe error responses. Other workflows, dashboard screens, and Redis caching remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents and paginated listing with search/filters are implemented with request validation and safe error responses. Other workflows, dashboard screens, and Redis caching remain planned.
 
 ## High-level architecture
 
@@ -64,11 +65,11 @@ FleetFlow/
 |   |   |-- server.js        Starts the HTTP server
 |   |   |-- startup.js       Connects the database before listening; owns cleanup
 |   |   |-- routes/
-|   |   |   `-- agentRoutes.js       POST route and validation wiring
+|   |   |   `-- agentRoutes.js       POST/GET routes and validation wiring
 |   |   |-- controllers/
-|   |   |   `-- agentController.js   Creates an agent and selects public fields
+|   |   |   `-- agentController.js   Creates/lists agents and selects public fields
 |   |   |-- validation/
-|   |   |   `-- agentSchemas.js     Strict create-agent request schema
+|   |   |   `-- agentSchemas.js     Strict create-body and list-query schemas
 |   |   |-- config/
 |   |   |   |-- env.js       Loads and validates backend configuration
 |   |   |   `-- db.js        Mongoose connection and safe lifecycle messages
@@ -84,6 +85,7 @@ FleetFlow/
 |       |-- db.test.js       Mocked database connection tests
 |       |-- agent.test.js    Agent schema validation and index definitions
 |       |-- create-agent.test.js    Mocked create-agent endpoint tests
+|       |-- list-agents.test.js     Mocked list query and pagination tests
 |       |-- request-errors.test.js  Request middleware and safe error responses
 |       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
 |   `-- scripts/
@@ -189,9 +191,9 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/src/config/env.js` loads the file, then uses a Zod schema to describe allowed configuration. `safeParse()` returns validated data or validation issues. The port schema checks decimal text, converts it with `Number`, and enforces the TCP range. MongoDB URI syntax is required and checked by constructing a driver client without opening it. Optional Redis blanks normalize to `undefined`. Invalid configuration throws a readable error before the server can listen. The module exports only the validated `env` object.
 - `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
 - `server/src/app.js` creates and exports the Express application without opening a network port. Middleware runs in order: `express.json()`, health, the `/api/agents` router, the unchanged JSON 404 fallback, and the existing `errorHandler` last.
-- `server/src/routes/agentRoutes.js` defines only `POST /`; mounting it under `/api/agents` produces `POST /api/agents`. It runs the existing `validateRequest()` before the controller.
-- `server/src/validation/agentSchemas.js` defines the strict Zod request schema. Required strings must be nonblank; email is trimmed, lowercased, and checked for valid syntax. Status is optional with only `active` or `inactive` allowed. Extra keys are rejected.
-- `server/src/controllers/agentController.js` exports `createAgent()`. It waits for model/index initialization, saves only `request.validated.body` using `Agent.create()`, then returns 201 with explicitly selected public fields. It forwards duplicate errors as `ApiError(409, ...)` and all other errors to the existing central handler.
+- `server/src/routes/agentRoutes.js` defines `POST /` and `GET /`; mounting it under `/api/agents` produces the create and list endpoints. Both use the existing `validateRequest()` before their controller, with `body` for create and `query` for list.
+- `server/src/validation/agentSchemas.js` contains the unchanged strict create schema and a new strict list-query schema. Query defaults and numeric conversion are applied before the controller; invalid, repeated, nested, or unknown parameters are rejected.
+- `server/src/controllers/agentController.js` exports `createAgent()` and `listAgents()`. Create retains its existing save/index/duplicate behavior. List builds a filter from validated query values, escapes search text, and executes a paginated find plus a matching count. Both call `publicAgent()` to return the existing public field shape. This small shared formatter preserves the create response and avoids duplicating field selection.
 - `server/src/middleware/validateRequest.js` exports `validateRequest(schema, section)`. It checks a request section against a supplied Zod schema and passes failures to the shared error handler. Parsed data goes into `request.validated[section]` for route handlers to use.
 - `server/src/middleware/errorHandler.js` is the sole final API error handler. It formats Zod/request validation errors, parser errors, and expected application errors; hides unexpected internal details; and delegates with `next(error)` if a response has already started.
 - `server/src/utils/ApiError.js` defines `ApiError` for developer-controlled public application errors and `RequestValidationError` for internal Zod issues with their request-section label. Neither class writes an HTTP response; the central handler owns that job.
@@ -201,6 +203,7 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/test/db.test.js` mocks Mongoose connection methods to verify success, failure propagation, reuse, and safe logs. `server/test/startup.test.js` checks database-before-HTTP ordering, real HTTP responses with mocked database readiness, failure cleanup, cancellation, occupied ports, and repeatable shutdown.
 - `server/test/request-errors.test.js` uses isolated Express apps with test-only routes to exercise validation and error responses over HTTP. It also checks the already-sent-response guard directly. No test routes are added to the production app.
 - `server/test/create-agent.test.js` exercises the production app over HTTP while mocking `Agent.init()` and `Agent.create()`. The mock creates and validates real in-memory Agent documents, but supplies simulated persistence timestamps; it does not prove storage.
+- `server/test/list-agents.test.js` exercises the production GET route with mocked `Agent.find()` query chains and `Agent.countDocuments()`. It checks filters, escaped regexes, projection, sort, skip/limit, metadata, invalid queries, empty pages, and safe error responses without a database connection.
 - `server/scripts/verify-create-agent.js` is a separate, opt-in Atlas integration check. It redirects model calls to a clone of the same schema in a randomly named disposable collection, performs real writes and direct database reads, checks a duplicate, removes that collection, and closes connections. It does not insert into the normal agents collection and is not run by `npm test`.
 
 The error middleware uses Express's four-parameter convention and runs last, as described in the [official Express error-handling guide](https://expressjs.com/en/guide/error-handling/). Node's [watch-mode documentation](https://nodejs.org/api/cli.html#--watch) explains the development runner.
@@ -292,9 +295,69 @@ An unexpected key is reported at `(root)` with `Unexpected fields`. A duplicate 
 }
 ```
 
-Unexpected persistence or index-initialization errors use the existing generic **500** response. Phone/email are not unique. GET, PATCH, and DELETE operations for agents remain unimplemented and return 404.
+Unexpected persistence or index-initialization errors use the existing generic **500** response. Phone/email are not unique. The list GET endpoint is documented below; single-agent GET, PATCH, and DELETE remain unimplemented and return 404.
 
 Run `node --test test/create-agent.test.js` inside `server/` for the isolated route tests. To separately verify real persistence using private local configuration, run `node scripts/verify-create-agent.js`. It requires Atlas read/write/index/drop permissions for its disposable collection. The script creates one test document, verifies it directly from MongoDB, confirms duplicate rejection, then drops only its owned `fleetflow_step7_check_` collection. A forced timeout or cleanup error is reported; check for a leftover collection with that prefix in that case. The normal model may also initialize its collection/indexes through the usual startup flow, but integration test records go only into the disposable collection.
+
+## List delivery agents
+
+**`GET /api/agents`** returns HTTP **200** with the current page of public agent records and pagination metadata. It does not require a request body.
+
+| Query parameter | Default | Rules and behavior |
+| --- | --- | --- |
+| `page` | `1` | Positive decimal integer, supplied as one string. Whitespace is trimmed; zero, negative values, fractions, scientific notation, leading zeros, blank values, and unsafe integers/offsets are rejected. Omit the parameter to use its default. |
+| `limit` | `10` | Positive decimal integer with a maximum of **100**; follows the same string-format rules as page. Values above 100 are rejected rather than silently reduced. |
+| `search` | No search | Trimmed text, maximum **200 characters**. Case-insensitive literal substring matching across `agentId`, `fullName`, `phone`, `email`, and `serviceArea`. Regex special characters are escaped. Blank text is ignored. |
+| `status` | No filter | Only `active` or `inactive`, after trimming. Blank or other values are rejected. |
+| `serviceArea` | No filter | Exact, case-sensitive match after trimming. Blank text is ignored. Special characters have no regex or query-operator meaning. |
+
+Repeated parameters, bracket/nested input, and unknown parameters return the existing HTTP **400** validation response, with `details[].section` set to `query`. Query values are never passed directly into MongoDB as a user-supplied filter object.
+
+Example requests (URL-encode spaces and special characters in values):
+
+```text
+GET /api/agents
+GET /api/agents?page=2&limit=25
+GET /api/agents?search=alex
+GET /api/agents?status=active&serviceArea=Central
+GET /api/agents?search=alex&status=active&serviceArea=Central&page=2&limit=5
+```
+
+Search matches any of its five fields using OR. Status and service-area filters must both match when supplied, and are combined with search using AND. Results are sorted by `createdAt` descending, then `_id` descending to break timestamp ties deterministically.
+
+Example response with one matching record (ID and dates are illustrative):
+
+```json
+{
+  "success": true,
+  "message": "Agents retrieved successfully",
+  "data": [
+    {
+      "id": "68f2d0000000000000000001",
+      "agentId": "AGENT-001",
+      "fullName": "Alex Morgan",
+      "phone": "+1 202-555-0142",
+      "email": "alex@example.com",
+      "serviceArea": "Central",
+      "status": "active",
+      "createdAt": "2026-10-18T00:00:00.000Z",
+      "updatedAt": "2026-10-18T00:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "totalPages": 1
+  }
+}
+```
+
+`data` uses the same public fields as create. `total` counts all matching records before pagination; `totalPages` is `Math.ceil(total / limit)`. No matches produce `data: []`, `total: 0`, and `totalPages: 0`. A page beyond the last page remains 200 with an empty array, the requested page/limit, and the actual matching totals; it is not silently moved to another page.
+
+The database performs sorting and pagination using `skip((page - 1) * limit)` and `limit(limit)`. The controller does not fetch all agents and slice them in JavaScript. The find query selects only public fields and uses `lean()` to return plain records for the bounded current page; the formatter converts each record to the public response shape. A separate `countDocuments()` query uses the same filter. These independent reads are not a transactional snapshot: simultaneous writes may briefly make totals and page contents differ. Unexpected find/count errors go to the unchanged central handler and return a generic 500. See the [Mongoose query documentation](https://mongoosejs.com/docs/api/query.html).
+
+Run `node --test test/list-agents.test.js test/create-agent.test.js` inside `server/` for focused list/create regression tests, or `npm test` for the full suite. Step 8 tests mock database calls and assert query construction and HTTP behavior. No real database check was run for Step 8, and `server/.env` was not read or changed.
 
 ## Request validation and centralized errors
 
@@ -421,8 +484,24 @@ Actual commands run inside `server/` on October 18, 2026:
 
 The route tests verify normalization, the model's default status, safe generated database IDs, rejection of missing/invalid/extra data, index readiness, duplicate conflicts, safe unexpected errors, and preserved health/404 behavior. The opt-in check used real Mongoose persistence against an isolated collection by redirecting model methods; it did not test writes into the normal agents collection. Existing regression tests also passed for malformed JSON, oversized bodies, and database startup failures. No dependencies were added, no private configuration was printed or modified, and no commit was created. Step 7 acceptance criteria passed; no known blocker remains.
 
-After review, the suggested Step 7 commit message for you to execute is:
+## Step 8 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/list-agents.test.js test/create-agent.test.js` | 17 tests passed: 9 new list tests and 8 create regression tests |
+| `npm test` | All 49 tests passed, including all existing health, 404, parser-error, validation, and startup regressions |
+| `node --check src/controllers/agentController.js` | Passed |
+| `node --check src/routes/agentRoutes.js` | Passed |
+| `node --check src/validation/agentSchemas.js` | Passed |
+| `node --check test/create-agent.test.js` | Passed |
+| `node --check test/list-agents.test.js` | Passed |
+
+The old create regression test's expectation that list GET was unimplemented was updated; single-agent read, update, and delete still return 404. No dependencies were added. Model calls were mocked, so this step does not claim real MongoDB filtering or pagination integration coverage. No private environment file was read or modified, and no Atlas verification script was run. Step 8 acceptance criteria passed; no known blocker remains.
+
+After review, the suggested Step 8 commit message for you to execute is:
 
 ```text
-feat: add create agent API
+feat: add paginated agent list API
 ```
