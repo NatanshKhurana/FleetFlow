@@ -39,6 +39,9 @@ test('Agents route uses the shared shell with active navigation, real filters, a
   assert.match(html, /aria-current="page"[^>]*href="\/agents"/);
   assert.match(html, /Loading agents/);
   assert.match(html, /role="search"/);
+  assert.match(html, /aria-expanded="false" aria-controls="add-agent-panel"/);
+  assert.match(html, /Add new agent/);
+  assert.match(html, /id="add-agent-panel" hidden=""/);
   assert.doesNotMatch(html, /Agents, coming soon/);
 });
 

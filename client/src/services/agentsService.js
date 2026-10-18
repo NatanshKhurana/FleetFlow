@@ -24,6 +24,12 @@ function publicAgent(agent) {
   return Object.fromEntries([...fields, 'status'].map((field) => [field, agent[field]]));
 }
 
+export async function createAgent(data, client = api) {
+  const response = await client.post('/agents', data);
+  if (response.status !== 201 || response.data?.success !== true) throw new Error('Invalid create response');
+  return publicAgent(response.data.data);
+}
+
 export async function fetchAgents(query = {}, { signal } = {}, client = api) {
   const params = agentListParams(query);
   const { data: body } = await client.get('/agents', { params, signal });

@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-21 are **COMPLETE** and Steps 22-30 remain **PENDING**. Step 20 is committed as `b5d958e`; earlier steps retain their existing commits. Step 21 implements the read-only Agents table with server-backed search/status/service-area filters and pagination. It passed 22 focused tests, all 36 frontend tests, production build, syntax checks, and Git checks. View/Edit/Delete controls remain explicitly disabled pending the later detail and mutation flows, as requested. Live API verification was skipped because no backend was running; browser interaction/viewport checks were not performed. The backend was not started, changed, or reconfigured, and server/.env was not accessed. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-22 are **COMPLETE** and Steps 23-30 remain **PENDING**. Step 21 is committed as `36ecb01`; earlier steps retain their existing commits. Step 22 adds the inline Add new agent form using the existing POST contract, client validation, safe errors with retained drafts, duplicate-submit protection, success feedback, and a list reload with cleared filters. Verification passed: 36 focused tests, all 50 frontend tests, production build, syntax checks, and Git checks. Additional backend regression verification passed all 128 tests with test-file concurrency limited to one; an earlier parallel run hit two existing configuration-test child-process timeouts, and all 8 configuration tests passed independently. Browser interaction/viewport checks and live creation were not performed in Step 22. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. View/Edit/Delete remain disabled for later steps. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -200,7 +200,7 @@ Acceptance criteria: Data comes from the API and loading, empty, and error state
 Commit: feat: build searchable agent management table
 
 ### Step 22 — Build Add Agent form
-Status: PENDING
+Status: COMPLETE
 
 Objective: Create the form for adding a delivery agent.
 
