@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-5 are **COMPLETE** after verification; Steps 6-30 remain **PENDING**. Steps 1-4 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, and `9e814f5`. Step 5 model checks and all 24 automated tests passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-6 are **COMPLETE** after verification; Steps 7-30 remain **PENDING**. Steps 1-5 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, and `4fa2766`. Step 6 validation/error checks and all 32 automated tests passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -50,7 +50,7 @@ Acceptance criteria: Schema validation, timestamps, unique identifiers, and appr
 Commit: feat: define delivery agent data model
 
 ### Step 6 — Add API validation and error handling
-Status: PENDING
+Status: COMPLETE
 
 Objective: Introduce Zod request validation and centralized error handling.
 

@@ -1,4 +1,5 @@
 import express from 'express';
+import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
 
@@ -20,32 +21,6 @@ app.use((request, response) => {
   });
 });
 
-// Express recognizes error middleware by these four parameters; keep it last.
-app.use((error, request, response, next) => {
-  if (response.headersSent) {
-    return next(error);
-  }
-
-  if (error.type === 'entity.parse.failed') {
-    return response.status(400).json({
-      success: false,
-      message: 'Invalid JSON request body',
-    });
-  }
-
-  if (error.type === 'entity.too.large') {
-    return response.status(413).json({
-      success: false,
-      message: 'Request body is too large',
-    });
-  }
-
-  // Keep internal error details out of the public response.
-  console.error('Unexpected API error:', error);
-  response.status(500).json({
-    success: false,
-    message: 'Internal server error',
-  });
-});
+app.use(errorHandler);
 
 export default app;

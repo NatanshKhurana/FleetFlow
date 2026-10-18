@@ -4,14 +4,15 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The Express backend and Delivery Agent model are implemented.** The backend connects to MongoDB Atlas before accepting HTTP requests. Agent CRUD workflows and the frontend have not been implemented yet.
+**The Express backend, Delivery Agent model, reusable request validation, and centralized error handling are implemented.** The backend connects to MongoDB Atlas before accepting HTTP requests. Agent CRUD workflows and the frontend have not been implemented yet.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
 - Step 3 is COMPLETE and committed locally as `ee4870c` (`chore: configure environment variables`).
 - Step 4 is COMPLETE and committed locally as `9e814f5` (`feat: connect application to MongoDB`).
-- Step 5 is COMPLETE after model validation and regression tests passed. Its changes await review and remain uncommitted.
-- Steps 6-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 5 is COMPLETE and committed locally as `4fa2766` (`feat: define delivery agent data model`).
+- Step 6 is COMPLETE after request validation, error handling, and all 32 automated tests passed. Its changes await review and remain uncommitted.
+- Steps 7-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes a health endpoint and consistent JSON error responses.
 - Express, dotenv, Zod, and Mongoose are the direct dependencies. The development script uses Node's built-in watch mode.
 - `client/` remains empty. The Agent model is defined and exported for later CRUD steps; there are no CRUD endpoints, authentication, or Redis connections.
@@ -64,12 +65,18 @@ FleetFlow/
 |   |   |-- config/
 |   |   |   |-- env.js       Loads and validates backend configuration
 |   |   |   `-- db.js        Mongoose connection and safe lifecycle messages
-|   |   `-- models/
-|   |       `-- Agent.js     Delivery Agent schema and exported model
+|   |   |-- models/
+|   |   |   `-- Agent.js     Delivery Agent schema and exported model
+|   |   |-- middleware/
+|   |   |   |-- validateRequest.js  Reusable Zod request validation
+|   |   |   `-- errorHandler.js     Final JSON error handler
+|   |   `-- utils/
+|   |       `-- ApiError.js  Expected application and request validation errors
 |   `-- test/
 |       |-- env.test.js      Configuration regression tests
 |       |-- db.test.js       Mocked database connection tests
 |       |-- agent.test.js    Agent schema validation and index definitions
+|       |-- request-errors.test.js  Request middleware and safe error responses
 |       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
 |-- docs/
 |   |-- DEVELOPMENT_RULES.md Permanent development rules
@@ -97,7 +104,7 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 npm run dev
 ```
 
-`cd server` selects the backend package. `npm ci` installs the exact versions recorded in `package-lock.json`. The PowerShell `if` command copies the safe template only if `.env` does not already exist, preserving any local settings. `npm run dev` runs `node --watch src/server.js`, which starts the API and restarts it when source files change. Stop it with Ctrl+C. To run without automatic restarts, use `npm start` (`node src/server.js`). Run `npm test` (`node --test`) for configuration regression tests. No build command is needed for this JavaScript backend.
+`cd server` selects the backend package. `npm ci` installs the exact versions recorded in `package-lock.json`. The PowerShell `if` command copies the safe template only if `.env` does not already exist, preserving any local settings. `npm run dev` runs `node --watch src/server.js`, which starts the API and restarts it when source files change. Stop it with Ctrl+C. To run without automatic restarts, use `npm start` (`node src/server.js`). Run `npm test` (`node --test`) for all server tests, or `node --test test/request-errors.test.js` for just the request/error tests. Neither test command requires a live database or private environment configuration. No build command is needed for this JavaScript backend.
 
 Direct dependencies are Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, and Mongoose 9.11.2, with exact resolved versions in the lockfile. Express serves requests, dotenv reads the environment file, Zod checks configuration, and Mongoose manages MongoDB connectivity. Node provides watch mode and tests, so no nodemon or test dependency is needed. Step 4 used `npm install mongoose` inside `server/`; `npm ci` above is the reproducible setup command for an existing checkout.
 
@@ -140,7 +147,7 @@ For connection trouble, check the private database username/password, database p
 
 `timestamps: true` enables the two date fields. Merely constructing or validating an unsaved document does not populate timestamps. The schema tests check timestamp configuration without saving to a database.
 
-Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen as values are assigned, before validation or persistence. No international phone canonicalization or email-format validator is added in this step; these fields currently enforce required non-empty text. Request validation remains scheduled for Step 6.
+Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen as values are assigned, before validation or persistence. No international phone canonicalization or email-format validator is added to the model; these fields currently enforce required non-empty text. Step 6 provides reusable request-validation middleware; Agent-specific request schemas will be defined with the later CRUD endpoints.
 
 Mongoose validation catches missing required fields, blank required text after trimming, and unsupported status values before a normal save. This helps keep records consistent; it does not replace request validation. `unique: true` declares a MongoDB index rather than a Mongoose validator: `validate()` cannot detect duplicate stored IDs. Once the unique index exists, MongoDB rejects conflicting writes with a duplicate-key error. Future CRUD setup must ensure that index is ready and handle those errors. This step verifies the index definition only, without creating it in Atlas. See the [Mongoose validation guide](https://mongoosejs.com/docs/validation.html).
 
@@ -171,11 +178,15 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/.env.example` is the shareable backend template; the local `.env` copy is ignored by Git.
 - `server/src/config/env.js` loads the file, then uses a Zod schema to describe allowed configuration. `safeParse()` returns validated data or validation issues. The port schema checks decimal text, converts it with `Number`, and enforces the TCP range. MongoDB URI syntax is required and checked by constructing a driver client without opening it. Optional Redis blanks normalize to `undefined`. Invalid configuration throws a readable error before the server can listen. The module exports only the validated `env` object.
 - `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
-- `server/src/app.js` creates and exports the Express application without opening a network port. Middleware functions process requests in order. `express.json()` reads JSON request bodies. The health route returns the response below; the following fallback sends JSON 404 responses for unmatched routes. The final four-parameter error middleware handles malformed JSON (400), oversized bodies (413), and unexpected failures (500). It avoids exposing internal errors to callers and delegates with `next(error)` if a response has already started.
+- `server/src/app.js` creates and exports the Express application without opening a network port. Middleware functions process requests in order: `express.json()`, the existing health route, the unchanged JSON 404 fallback, and the imported `errorHandler` last. The existing final handler was extracted rather than duplicated. No new production route was added in Step 6.
+- `server/src/middleware/validateRequest.js` exports `validateRequest(schema, section)`. It checks a request section against a supplied Zod schema and passes failures to the shared error handler. Parsed data goes into `request.validated[section]` for route handlers to use.
+- `server/src/middleware/errorHandler.js` is the sole final API error handler. It formats Zod/request validation errors, parser errors, and expected application errors; hides unexpected internal details; and delegates with `next(error)` if a response has already started.
+- `server/src/utils/ApiError.js` defines `ApiError` for developer-controlled public application errors and `RequestValidationError` for internal Zod issues with their request-section label. Neither class writes an HTTP response; the central handler owns that job.
 - `server/src/startup.js` exports `startServer()`, which awaits the database connection before listening and returns the HTTP server plus a reusable `shutdown()` function. Failure cleans up the database client. Tests substitute database functions while using the real Express app, so ordinary tests never require Atlas.
 - `server/src/server.js` loads validated configuration, starts the application, and handles signals. An AbortController marks startup as cancelled during shutdown; it prevents a pending connection from subsequently opening HTTP. Startup failures produce a fixed safe message and non-zero exit. The shutdown deadline prevents hanging cleanup.
 - `server/test/env.test.js` uses Node's built-in test runner and separate child processes to check configuration in isolation. `createFixture()` copies the real loader into a disposable folder; `runConfig()` starts it with controlled environment variables. Tests never overwrite the developer's real `.env`, and disposable files are removed after each test.
 - `server/test/db.test.js` mocks Mongoose connection methods to verify success, failure propagation, reuse, and safe logs. `server/test/startup.test.js` checks database-before-HTTP ordering, real HTTP responses with mocked database readiness, failure cleanup, cancellation, occupied ports, and repeatable shutdown.
+- `server/test/request-errors.test.js` uses isolated Express apps with test-only routes to exercise validation and error responses over HTTP. It also checks the already-sent-response guard directly. No test routes are added to the production app.
 
 The error middleware uses Express's four-parameter convention and runs last, as described in the [official Express error-handling guide](https://expressjs.com/en/guide/error-handling/). Node's [watch-mode documentation](https://nodejs.org/api/cli.html#--watch) explains the development runner.
 
@@ -205,7 +216,35 @@ An unknown route, such as `GET /api/unknown`, returns HTTP **404** with:
 }
 ```
 
-Other errors use the same `success: false` and `message` fields. Malformed JSON returns `Invalid JSON request body` (400); a body exceeding the JSON parser's default 100 KB limit returns `Request body is too large` (413); unexpected failures return `Internal server error` (500). This is basic error handling only; Zod request validation remains scheduled for Step 6.
+Other errors use the same `success: false` and `message` fields. Malformed JSON returns `Invalid JSON request body` (400); a body exceeding the JSON parser's default 100 KB limit returns `Request body is too large` (413); unexpected failures return `Internal server error` (500). These existing responses are preserved.
+
+## Request validation and centralized errors
+
+`validateRequest(schema, section = 'body')` supports `body`, `params`, and `query`. Add it before a future route handler and read `request.validated.body`, `.params`, or `.query` in that handler. For example, `validateRequest(z.object({ label: z.string().trim().min(1) }), 'body')` validates a body with a nonblank label. This is a usage example, not an implemented endpoint. Chain middleware calls to validate several sections; each keeps the other parsed sections intact. Handlers should use parsed data instead of assuming the original request data was transformed.
+
+The helper uses `safeParseAsync()` so synchronous schemas, asynchronous refinements, defaults, and transforms work. The supplied schema controls coercion and unknown-key behavior. Original request sections are preserved, including Express 5's read-only query getter. Invalid input calls `next(error)` and skips the route; a programming exception in a refinement is forwarded by Express 5 as an unexpected error, rather than silently treated as bad user input. See [Zod's parsing documentation](https://zod.dev/basics).
+
+Zod validation failures return HTTP 400 with this structure:
+
+```json
+{
+  "success": false,
+  "message": "Request validation failed",
+  "details": [
+    {
+      "section": "body",
+      "field": "profile.name",
+      "message": "Value is too short or below the minimum"
+    }
+  ]
+}
+```
+
+`details` identifies the section, a dotted field path, and a safe message. Root-level issues use `(root)`. Errors from direct Zod parsing use section `request` because no middleware section is attached. Messages come from fixed mappings of Zod issue codes: missing/type, size, format, allowed-value, and unknown-field errors get readable descriptions; other issue codes get `Invalid value`. Raw Zod messages, submitted values, stack traces, and extra issue metadata are never serialized or logged. This deliberately keeps wording generic, including for custom refinements.
+
+For an expected application failure, future route code may throw `new ApiError(409, 'Requested operation conflicts with current state')`. Status must be an integer from 400 to 599. Messages for 4xx errors are public text: write a fixed, safe explanation rather than copying request values or driver errors. Expected 5xx application errors retain their status but use the generic `Internal server error` message. Ordinary unexpected errors always become 500, even if they carry `statusCode` or `expose` properties. Server failures log a fixed message without the raw error.
+
+All responses retain the `success: false` / `message` envelope; only request-validation failures add `details`. After headers have been sent, the handler forwards the original error to Express without attempting another response. Database/startup failures remain in the existing startup code, outside this HTTP handler. Route-specific Agent schemas and database-error mappings belong to the later CRUD steps; neither live database behavior nor new endpoints are introduced here.
 
 ## Step 2 verification
 
@@ -269,8 +308,24 @@ Actual checks run on October 18, 2026, inside `server/`:
 
 Agent tests cover valid active/inactive documents, each missing required field, empty/whitespace/null required values, invalid status, default status, trimming, lowercase email, timestamp configuration, and the intended unique index. No dependencies were added. No live database was used, no secrets were read from `server/.env`, and no indexes or records were created. Database duplicate enforcement and timestamp persistence were not integration-tested; the schema definitions are verified. Step 5 acceptance criteria passed; no known blocker remains.
 
-After review, the suggested Step 5 commit message for you to execute is:
+## Step 6 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/request-errors.test.js` | 8 passed after correcting an assertion to inspect logged arguments rather than the test runner's mock metadata |
+| `node --check src/app.js` | Passed |
+| `node --check src/utils/ApiError.js` | Passed |
+| `node --check src/middleware/validateRequest.js` | Passed |
+| `node --check src/middleware/errorHandler.js` | Passed |
+| `node --check test/request-errors.test.js` | Passed |
+| `npm test` | All 32 tests passed, including all 24 existing tests |
+
+New tests cover valid/invalid body data, chained params and query validation, async schemas, raw Zod errors, application error status codes, safe unexpected 500 responses, hidden 5xx details, and already-started-response delegation. Existing startup tests continue verifying health 200, unknown-route 404, malformed JSON 400, oversized JSON 413, and database-startup failures. No live database or Redis was used, no dependencies were added, and `server/.env` was not read or changed. Step 6 acceptance criteria passed; no known blocker remains.
+
+After review, the suggested Step 6 commit message for you to execute is:
 
 ```text
-feat: define delivery agent data model
+feat: add request validation and API errors
 ```
