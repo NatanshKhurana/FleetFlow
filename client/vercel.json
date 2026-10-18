@@ -4,6 +4,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://fleetflow-api-2fq1.onrender.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
