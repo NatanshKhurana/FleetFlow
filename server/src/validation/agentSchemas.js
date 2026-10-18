@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { phonePattern } from './phone.js';
 
 // Reject extra fields so callers cannot set database IDs or timestamps.
 export const createAgentSchema = z.strictObject({
   agentId: z.string().trim().min(1),
   fullName: z.string().trim().min(1),
-  phone: z.string().trim().min(1),
+  phone: z.string().trim().min(1).regex(phonePattern),
   email: z.string().trim().toLowerCase().pipe(z.email()),
   serviceArea: z.string().trim().min(1),
   // Leave the default to the existing Mongoose model.

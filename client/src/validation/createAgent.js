@@ -10,6 +10,10 @@ export function emptyAgentForm() {
 // Match the installed backend Zod email rule; HTML email inputs alone are less strict.
 const emailPattern = /^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$/;
 
+// Keep this syntax rule consistent with server/src/validation/phone.js.
+const phonePattern = /^\+?(?:[0-9]|\([0-9]+\))(?:[ .-]*(?:[0-9]|\([0-9]+\)))*$/;
+export const phoneMessage = 'Enter a phone number using digits, an optional leading +, spaces, hyphens, dots, or parentheses.';
+
 export function validateAgentForm(values) {
   const data = {};
   const errors = {};
@@ -18,6 +22,7 @@ export function validateAgentForm(values) {
     if (!data[field]) errors[field] = `${label} is required.`;
   }
   data.email = data.email.toLowerCase();
+  if (data.phone && !phonePattern.test(data.phone)) errors.phone = phoneMessage;
   if (data.email && !emailPattern.test(data.email)) errors.email = 'Enter a valid email address.';
   if (!['active', 'inactive'].includes(data.status)) errors.status = 'Select Active or Inactive.';
   return { data, errors };
@@ -35,7 +40,8 @@ export function agentSubmissionError(error) {
     if (Array.isArray(details)) {
       for (const detail of details) {
         if (detail?.section === 'body' && Object.hasOwn(agentFieldLabels, detail.field)) {
-          fieldErrors[detail.field] = `Check ${agentFieldLabels[detail.field].toLowerCase()}. The server rejected this value.`;
+          fieldErrors[detail.field] = detail.field === 'phone' ? phoneMessage
+            : `Check ${agentFieldLabels[detail.field].toLowerCase()}. The server rejected this value.`;
         }
       }
     }

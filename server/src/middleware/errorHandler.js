@@ -1,5 +1,6 @@
 import { ZodError } from 'zod';
 import { ApiError, RequestValidationError } from '../utils/ApiError.js';
+import { phoneMessage } from '../validation/phone.js';
 
 function validationDetails(issues, section) {
   const messages = {
@@ -15,7 +16,8 @@ function validationDetails(issues, section) {
   return issues.map((issue) => ({
     section,
     field: issue.path.map(String).join('.') || '(root)',
-    message: messages[issue.code] || 'Invalid value',
+    message: section === 'body' && issue.path.length === 1 && issue.path[0] === 'phone' && issue.code === 'invalid_format'
+      ? phoneMessage : messages[issue.code] || 'Invalid value',
   }));
 }
 

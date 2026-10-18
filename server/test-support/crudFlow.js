@@ -34,6 +34,14 @@ export async function verifyCrudFlow(base) {
   assert.equal(agent.email, 'flow@example.com');
   const path = '/' + agent.id;
 
+  // Regression: invalid contact input must neither add a row nor change an existing one.
+  const invalidPhoneCreate = await send(base, 'POST', '', 400, { ...payload, agentId: 'PHONE-INVALID', phone: 'abc' });
+  assert.ok(invalidPhoneCreate.details.some((detail) => detail.field === 'phone'));
+  assert.equal((await send(base, 'GET', '', 200)).pagination.total, 1);
+  const invalidPhoneUpdate = await send(base, 'PATCH', path, 400, { phone: 'abc', fullName: 'Must not be saved' });
+  assert.ok(invalidPhoneUpdate.details.some((detail) => detail.field === 'phone'));
+  assert.deepEqual((await send(base, 'GET', path, 200)).data, agent);
+
   // Failures must leave the previously created agent intact.
   const duplicate = await send(base, 'POST', '', 409, { ...payload, agentId: ' FLOW-001 ' });
   assert.deepEqual(duplicate, { success: false, message: 'An agent with this agentId already exists' });

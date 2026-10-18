@@ -301,7 +301,7 @@ For connection trouble, check the private database username/password, database p
 | --- | --- |
 | `agentId` | Caller-supplied business identifier; required trimmed string with a unique MongoDB index. Values remain case-sensitive. It is separate from MongoDB's generated `_id`, exposed as `id` in API responses. No sequence counter or business-ID generator is introduced. |
 | `fullName` | Agent's display name; required trimmed string. |
-| `phone` | Contact number; required trimmed string. Internal formatting is preserved, including a leading `+`. |
+| `phone` | Contact number; required trimmed string containing numeric phone syntax. Optional leading `+`, spaces, hyphens, dots, and digit groups in parentheses are accepted; formatting is preserved. |
 | `email` | Contact email; required string, trimmed and converted to lowercase. |
 | `serviceArea` | Area served by the agent; required trimmed string. |
 | `status` | Trimmed string allowing only `active` or `inactive`. Defaults to `active` when omitted; null and empty values are rejected. |
@@ -310,7 +310,7 @@ For connection trouble, check the private database username/password, database p
 
 `timestamps: true` enables the two date fields. Merely constructing or validating an unsaved document does not populate timestamps. The schema tests check timestamp configuration without saving to a database.
 
-Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen before persistence. The model continues enforcing non-empty required strings without a phone-format rule; the create-request schema additionally validates email syntax. No international phone canonicalization is introduced.
+Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen before persistence. The model and POST/PATCH request schemas enforce phone syntax; the request schemas also validate email syntax. No international phone canonicalization is introduced. See the phone-validation correction below for its scope and regression checks.
 
 Mongoose validation catches missing required fields, blank required text after trimming, and unsupported status values before a normal save. This helps keep records consistent; it does not replace request validation. `unique: true` declares a MongoDB index rather than a Mongoose validator: `validate()` cannot detect duplicate stored IDs. The create controller waits for index initialization and converts MongoDB duplicate-key code 11000 to a safe 409 response. MongoDB enforces uniqueness even for concurrent requests, without a race-prone pre-check. See the [Mongoose validation guide](https://mongoosejs.com/docs/validation.html) and [Model.init documentation](https://mongoosejs.com/docs/api/model.html#Model.init()).
 
@@ -820,7 +820,7 @@ Zod validation failures return HTTP 400 with this structure:
 }
 ```
 
-`details` identifies the section, a dotted field path, and a safe message. Root-level issues use `(root)`. Errors from direct Zod parsing use section `request` because no middleware section is attached. Messages come from fixed mappings of Zod issue codes: missing/type, size, format, allowed-value, and unknown-field errors get readable descriptions; other issue codes get `Invalid value`. Raw Zod messages, submitted values, stack traces, and extra issue metadata are never serialized or logged. This deliberately keeps wording generic, including for custom refinements.
+`details` identifies the section, a dotted field path, and a safe message. Root-level issues use `(root)`. Errors from direct Zod parsing use section `request` because no middleware section is attached. Messages come from fixed mappings of Zod issue codes: missing/type, size, format, allowed-value, and unknown-field errors get readable descriptions; other issue codes get `Invalid value`. Phone-format errors in the request body use a fixed explanation of the accepted syntax. Raw Zod messages, submitted values, stack traces, and extra issue metadata are never serialized or logged. Other wording remains generic, including for custom refinements.
 
 For an expected application failure, future route code may throw `new ApiError(409, 'Requested operation conflicts with current state')`. Status must be an integer from 400 to 599. Messages for 4xx errors are public text: write a fixed, safe explanation rather than copying request values or driver errors. Expected 5xx application errors retain their status but use the generic `Internal server error` message. Ordinary unexpected errors always become 500, even if they carry `statusCode` or `expose` properties. Server failures log a fixed message without the raw error.
 
@@ -1275,7 +1275,7 @@ Open `/agents` and select **Add new agent**. The inline panel uses the existing 
 | --- | --- |
 | Agent ID (`agentId`) | Required nonblank string, trimmed; a user-supplied unique business identifier, separate from MongoDB's generated public `id` |
 | Full name (`fullName`) | Required nonblank string, trimmed |
-| Phone (`phone`) | Required nonblank string, trimmed; the backend imposes no phone-format restriction |
+| Phone (`phone`) | Required trimmed numeric phone syntax, allowing an optional leading `+`, spaces, hyphens, dots, and parenthesized digit groups; see the phone-validation correction below |
 | Email (`email`) | Required, trimmed and lowercased before submission; client email pattern matches the installed backend Zod rule |
 | Service area (`serviceArea`) | Required nonblank string, trimmed; free text, with no invented area-options API |
 | Status (`status`) | Active selected initially; Active/Inactive send only `active`/`inactive`. The API permits omission and its model defaults to active; the form sends its explicit selection. |
@@ -1368,7 +1368,7 @@ feat: add agent details view
 
 Choose **Edit** in an Agents row or on the detail page to open `/agents/:id/edit`. The page loads the selected record through the existing detail GET before prefilling the form. It uses the same MongoDB public record ID as the detail API. Invalid IDs, missing records, failed loads, and retry reuse the existing detail states. The dashboard header reads Edit agent and Agents stays active in navigation.
 
-The shared form now supports edit mode. Full name, phone, email, service area, and status are editable; business Agent ID is read-only, and database IDs/timestamps are never submitted. Existing required-string, trim, email lowercase/format, and active/inactive rules are reused. The existing inactive status is preserved, not defaulted to active. No extra phone restrictions or new fields are introduced.
+The shared form now supports edit mode. Full name, phone, email, service area, and status are editable; business Agent ID is read-only, and database IDs/timestamps are never submitted. Required-string, trim, phone syntax, email lowercase/format, and active/inactive rules are reused. The existing inactive status is preserved, not defaulted to active. Phone syntax follows the correction documented below; no new fields are introduced.
 
 `validation/agentMutations.js` normalizes the complete draft and compares it with the loaded record, producing only changed editable fields. A one-field edit sends a one-field PATCH, so omitted fields are preserved. An unchanged draft shows No changes to save without making a request. `agentsService.updateAgent()` uses the existing HTTP 200 `{ success: true, data: agent }` contract and public-field checker. Identifiers and the returned record ID are checked consistently with detail loading.
 
@@ -1414,3 +1414,41 @@ Suggested Step 24 commit message after review:
 ```text
 feat: add agent editing and deletion UI
 ```
+
+## Phone-validation correction
+
+The contact field is `phone`. Previously, the POST schema checked only `z.string().trim().min(1)` and PATCH inherited that rule. Mongoose required a trimmed string but had no format check. The frontend also checked only that the string was nonblank; `type="tel"` by itself does not validate phone syntax. Consequently, `abc` passed every layer.
+
+No country-specific format or digit count was established. The corrected rule requires numeric phone syntax: digits, an optional leading `+`, spaces, hyphens, dots, and balanced parentheses enclosing digit groups. Examples accepted unchanged after outer trimming include `+1 202-555-0142`, `(020)7946 0958`, `+91 98765 43210`, and `202.555.0142`. Letters, mixed alphanumeric text, punctuation-only values, misplaced plus signs, and unmatched parentheses are rejected. No digit count is imposed, so existing short numeric values such as `123` remain accepted. This checks syntax, not reachability or country-specific numbering validity; extensions containing letters are not supported.
+
+`server/src/validation/phone.js` shares the rule and a safe fixed error message between the Agent model and API error formatting. The create request schema applies the rule, and PATCH inherits it through the existing editable-field schema. Mongoose provides the same defense for model validation. Invalid POST/PATCH bodies return HTTP **400** before any database write or cache invalidation, keeping the established JSON structure:
+
+```json
+{
+  "success": false,
+  "message": "Request validation failed",
+  "details": [{
+    "section": "body",
+    "field": "phone",
+    "message": "Enter a phone number using digits, an optional leading +, spaces, hyphens, dots, or parentheses."
+  }]
+}
+```
+
+The existing client form validator implements the same rule and safe phone feedback. Both creation and editing already use that validator, so no form duplication or new dependencies were needed. Invalid input stays in the form with a linked phone-field error and no POST/PATCH request. Existing data is not migrated, rewritten, or canonicalized. Reads and cache response validation are unchanged; a previously stored invalid value remains until explicitly corrected. Controllers, successful mutation responses, uniqueness rules, and Redis invalidation logic are unchanged. Roadmap statuses are unchanged.
+
+Verification performed for this correction:
+
+| Directory | Command | Actual result |
+| --- | --- | --- |
+| `server/` | `node --test test/agent.test.js test/create-agent.test.js test/update-agent.test.js test/crud-flow.test.js test/request-errors.test.js` | 41 passed, 0 failed |
+| `server/` | `npm test -- --test-concurrency=1` | Full suite: 133 passed, 0 failed, 0 skipped |
+| `client/` | `node --test test/create-agent.test.js test/agent-mutations.test.js` | 41 passed, 0 failed |
+| `client/` | `npm test` | Full suite: 93 passed, 0 failed, 0 skipped |
+| `client/` | `npm run build` | Passed with Vite 8.3.4 |
+| Root | `node --check` on all 11 changed/new JavaScript files | Passed |
+| Root | `git diff --check` | Passed |
+
+The new endpoint tests assert that rejected input never calls model write methods or invalidation. The shared CRUD flow additionally attempts an invalid creation and a multi-field update containing `phone: "abc"`, then checks the row count and unchanged saved record. That flow passes with fake Redis enabled and unavailable; existing successful invalidation assertions still pass. Mongoose tests cover accepted/rejected syntax without a database; frontend tests cover phone errors and blocked creation/edit submission. Persistence assertions use mocked in-memory storage, not a live MongoDB database. No live MongoDB/Redis integration or browser interaction was run. No private environment files were accessed, dependencies added, files staged, or commits created.
+
+Suggested commit: `fix: validate agent phone input across API and forms`

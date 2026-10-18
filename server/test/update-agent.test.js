@@ -3,6 +3,8 @@ import { once } from 'node:events';
 import test from 'node:test';
 import app from '../src/app.js';
 import Agent from '../src/models/Agent.js';
+import { agentCacheState } from '../src/services/agentCacheState.js';
+import { phoneMessage } from '../src/validation/phone.js';
 import { updateAgentSchema } from '../src/validation/agentSchemas.js';
 
 const id = '68f2d0000000000000000001';
@@ -48,6 +50,31 @@ function patch(base, body, value = id) {
     body: JSON.stringify(body), signal: AbortSignal.timeout(5000),
   });
 }
+
+test('invalid phone PATCH rejects the entire update before persistence or cache invalidation', async (t) => {
+  const { base, update, query } = await startTestServer(t);
+  const invalidate = t.mock.method(agentCacheState, 'invalidate', async () => {});
+  for (const phone of ['abc', '123abc', '---', '1234567)', '12+34567']) {
+    const response = await patch(base, { phone, fullName: 'Must not be saved' });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { success: false, message: 'Request validation failed',
+      details: [{ section: 'body', field: 'phone', message: phoneMessage }] });
+  }
+  assert.equal(update.mock.callCount(), 0);
+  assert.equal(query.exec.mock.callCount(), 0);
+  assert.equal(invalidate.mock.callCount(), 0);
+});
+
+test('PATCH accepts formatted numeric phone values without changing unrelated fields', async (t) => {
+  const { base } = await startTestServer(t);
+  for (const phone of ['123', '(020)7946 0958', '+91 98765 43210', '202.555.0142']) {
+    const response = await patch(base, { phone: `  ${phone}  ` });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.data.phone, phone);
+    assert.equal(body.data.fullName, 'Alex Morgan');
+  }
+});
 
 test('one-field PATCH preserves omitted fields and returns only updated public data', async (t) => {
   const { base, update, query, find } = await startTestServer(t);

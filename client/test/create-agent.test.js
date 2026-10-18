@@ -42,6 +42,23 @@ function render(state) {
     .replace(/<!--.*?-->/g, '');
 }
 
+test('invalid phone values show a field error and cannot submit creation; numeric formats remain valid', async (t) => {
+  const create = t.mock.fn();
+  for (const phone of ['abc', 'abc123', '---', '()', '(1234567', '++1234567']) {
+    const resource = createAgentResource(create);
+    fill(resource, { ...values(), phone });
+    await resource.submit();
+    assert.equal(resource.getSnapshot().status, 'invalid');
+    assert.match(resource.getSnapshot().fieldErrors.phone, /phone number using digits/);
+    assert.match(render(resource.getSnapshot()), /new-agent-phone-error/);
+    assert.equal(resource.getSnapshot().values.phone, phone);
+  }
+  assert.equal(create.mock.callCount(), 0);
+  for (const phone of ['123', '5550142', '+1 202-555-0142', '(020)7946 0958', '+91 98765 43210', '202.555.0142']) {
+    assert.deepEqual(validateAgentForm({ ...values(), phone }).errors, {});
+  }
+});
+
 test('form renders exactly the supported fields, labels, required indicators, and two status options', () => {
   const resource = createAgentResource(() => {});
   const html = render(resource.getSnapshot());
@@ -63,12 +80,12 @@ test('form renders exactly the supported fields, labels, required indicators, an
   assert.doesNotMatch(html, /name="id"|name="createdAt"|name="password"/);
 });
 
-test('client rules trim strings and lowercase email without inventing phone/ID/area restrictions', () => {
+test('client rules trim strings and lowercase email without imposing country-specific phone/ID/area restrictions', () => {
   const result = validateAgentForm(values());
   assert.deepEqual(result.errors, {});
   assert.deepEqual(result.data, { agentId: 'AG-NEW', fullName: 'Alex Test', phone: '+1 202-555-0142',
     email: 'alex@example.com', serviceArea: 'North', status: 'active' });
-  assert.deepEqual(validateAgentForm({ ...values(), phone: 'x', agentId: 'a', serviceArea: 'a', status: ' inactive ' }).errors, {});
+  assert.deepEqual(validateAgentForm({ ...values(), phone: '123', agentId: 'a', serviceArea: 'a', status: ' inactive ' }).errors, {});
   for (const email of ['a+b@example.co.uk', "a'b@example.com", 'a_b@example.com']) {
     assert.deepEqual(validateAgentForm({ ...values(), email }).errors, {});
   }

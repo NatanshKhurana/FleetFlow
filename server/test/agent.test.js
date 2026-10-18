@@ -15,6 +15,18 @@ function validAgent(overrides = {}) {
 
 const requiredFields = ['agentId', 'fullName', 'phone', 'email', 'serviceArea'];
 
+test('phone syntax accepts numeric local/international formats and rejects alphabetic or malformed values', async () => {
+  for (const phone of ['123', '5550142', '+1 202-555-0142', '(020)7946 0958', '+91 98765 43210', '202.555.0142']) {
+    await new Agent(validAgent({ phone })).validate();
+  }
+  for (const phone of ['abc', '123abc', 'abc123', '---', '()', '(1234567', '1234567)', '++1234567', '12+34567']) {
+    await assert.rejects(new Agent(validAgent({ phone })).validate(), (error) => {
+      assert.equal(error.errors.phone.kind, 'regexp');
+      return true;
+    });
+  }
+});
+
 test('valid agents pass validation with either allowed status', async () => {
   for (const status of ['active', 'inactive']) {
     const agent = new Agent(validAgent({ status }));

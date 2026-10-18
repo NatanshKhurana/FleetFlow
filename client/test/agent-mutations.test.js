@@ -49,6 +49,26 @@ function renderEdit(state) {
   return render(FormView, { editing: true, state, onChange() {}, onSubmit() {}, onCancel() {} });
 }
 
+test('invalid phone edits show field feedback, preserve the draft, and never send PATCH', async (t) => {
+  const update = t.mock.fn();
+  for (const phone of ['abc', '123abc', '---', '1234567)', '12+34567']) {
+    const resource = createEditAgentResource(agent(), update);
+    resource.setField('phone', phone);
+    resource.setField('fullName', 'Must not be sent');
+    await resource.submit();
+    assert.equal(resource.getSnapshot().status, 'invalid');
+    assert.match(resource.getSnapshot().fieldErrors.phone, /phone number using digits/);
+    assert.match(renderEdit(resource.getSnapshot()), /edit-agent-phone-error/);
+    assert.equal(resource.getSnapshot().values.phone, phone);
+  }
+  assert.equal(update.mock.callCount(), 0);
+  for (const phone of ['123', '(020)7946 0958', '+91 98765 43210', '202.555.0142']) {
+    const result = validateAgentChanges({ ...agent(), phone: ` ${phone} ` }, agent());
+    assert.deepEqual(result.errors, {});
+    assert.equal(result.changes.phone, phone);
+  }
+});
+
 test('edit form prefills all supported fields, keeps agent ID read-only, and preserves the existing status', () => {
   const resource = createEditAgentResource(agent(), () => {});
   const html = render(EditAgentForm, { agent: agent(), onSaved() {}, onCancel() {} });
@@ -70,9 +90,9 @@ test('edit form prefills all supported fields, keeps agent ID read-only, and pre
 test('normalization creates genuine partial changes without identifiers, timestamps, or omitted defaults', () => {
   const original = agent();
   const result = validateAgentChanges({ ...original, agentId: 'tampered', fullName: ' New Name ',
-    email: ' NEW@EXAMPLE.COM ', phone: ' x ', serviceArea: ' South ', status: ' active ' }, original);
+    email: ' NEW@EXAMPLE.COM ', phone: ' 123 ', serviceArea: ' South ', status: ' active ' }, original);
   assert.deepEqual(result.errors, {});
-  assert.deepEqual(result.changes, { fullName: 'New Name', phone: 'x', email: 'new@example.com', serviceArea: 'South', status: 'active' });
+  assert.deepEqual(result.changes, { fullName: 'New Name', phone: '123', email: 'new@example.com', serviceArea: 'South', status: 'active' });
   assert.deepEqual(validateAgentChanges({ ...original, email: ' ALEX@EXAMPLE.COM ' }, original).changes, {});
 });
 

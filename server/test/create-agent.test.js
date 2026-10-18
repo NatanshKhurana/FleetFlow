@@ -3,6 +3,8 @@ import { once } from 'node:events';
 import test from 'node:test';
 import app from '../src/app.js';
 import Agent from '../src/models/Agent.js';
+import { agentCacheState } from '../src/services/agentCacheState.js';
+import { phoneMessage } from '../src/validation/phone.js';
 
 function validBody(overrides = {}) {
   return {
@@ -66,6 +68,29 @@ test('omitted status is supplied by the model as active', async (t) => {
   assert.equal(response.status, 201);
   assert.equal((await response.json()).data.status, 'active');
   assert.equal(Object.hasOwn(create.mock.calls[0].arguments[0], 'status'), false);
+});
+
+test('invalid phone input returns a clear 400 without creating a record or invalidating caches', async (t) => {
+  const { base, init, create } = await startTestServer(t);
+  const invalidate = t.mock.method(agentCacheState, 'invalidate', async () => {});
+  for (const phone of ['abc', 'abc123', '---', '(1234567', '++1234567']) {
+    const response = await post(base, validBody({ phone }));
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { success: false, message: 'Request validation failed',
+      details: [{ section: 'body', field: 'phone', message: phoneMessage }] });
+  }
+  assert.equal(init.mock.callCount(), 0);
+  assert.equal(create.mock.callCount(), 0);
+  assert.equal(invalidate.mock.callCount(), 0);
+});
+
+test('POST preserves valid phone formatting after trimming', async (t) => {
+  const { base } = await startTestServer(t);
+  for (const phone of ['123', '(020)7946 0958', '+91 98765 43210', '202.555.0142']) {
+    const response = await post(base, validBody({ phone: `  ${phone}  ` }));
+    assert.equal(response.status, 201);
+    assert.equal((await response.json()).data.phone, phone);
+  }
 });
 
 test('each missing, wrong-type, or blank required field returns 400 before persistence', async (t) => {

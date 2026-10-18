@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { phonePattern, phoneMessage } from '../validation/phone.js';
 
 const agentSchema = new mongoose.Schema({
   agentId: {
@@ -17,6 +18,7 @@ const agentSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
+    match: [phonePattern, phoneMessage],
   },
   email: {
     type: String,
