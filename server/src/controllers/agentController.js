@@ -125,3 +125,22 @@ export async function updateAgent(request, response, next) {
     return next(error);
   }
 }
+
+export async function deleteAgent(request, response, next) {
+  try {
+    // Delete one matching record and use its ID only to confirm it existed.
+    const agent = await Agent.findByIdAndDelete(request.validated.params.id)
+      .select('_id')
+      .lean()
+      .exec();
+
+    if (!agent) {
+      return next(new ApiError(404, 'Agent not found'));
+    }
+
+    // The roadmap requires 204: a successful response has no JSON body.
+    return response.status(204).end();
+  } catch (error) {
+    return next(error);
+  }
+}
