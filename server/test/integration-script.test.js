@@ -32,3 +32,19 @@ test('optional Redis check requires explicit process configuration without loadi
   assert.match(result.stderr, /Set FLEETFLOW_TEST_REDIS_URL privately/);
   assert.match(result.stderr, /No \.env file is loaded/);
 });
+
+test('optional cache check requires explicit configuration and never falls back to application Redis settings', () => {
+  const environment = { ...process.env };
+  for (const key of Object.keys(environment)) {
+    if (key.toUpperCase() === 'FLEETFLOW_TEST_REDIS_URL') delete environment[key];
+  }
+  environment.REDIS_URL = 'redis://fake-private-never-connect';
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/verify-cache.js', import.meta.url))], {
+    env: environment, encoding: 'utf8', timeout: 15000,
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /Set FLEETFLOW_TEST_REDIS_URL privately/);
+  assert.match(result.stderr, /No \.env file is loaded/);
+  assert.doesNotMatch(result.stderr, /fake-private|redis:\/\/|stack/);
+});

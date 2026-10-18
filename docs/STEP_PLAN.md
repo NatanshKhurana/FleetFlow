@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-16 are **COMPLETE** after verification; Steps 17-30 remain **PENDING**. Steps 1-15 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, `a40ea0e`, `c57405e`, `25c803f`, `0977418`, and `09580c8`. The project owner separately verified real Redis Cloud connectivity and PING/PONG using `node scripts/verify-redis.js`. Step 16 passed 44 focused tests and all 117 server tests with fake Redis and mocked MongoDB, plus syntax checks and git diff --check. Live cache invalidation was not integration-tested. Step 16 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-17 are **COMPLETE** after verification; Steps 18-30 remain **PENDING**. Steps 1-15 retain their existing commits; Step 16 is committed as `b8f8ec9`, with status documentation committed as `95aeef9`. The project owner separately verified real Redis Cloud connectivity and PING/PONG using `node scripts/verify-redis.js`. Step 17 passed 66 focused tests and all 128 server tests with fake Redis and mocked MongoDB, plus syntax checks and git diff --check. The optional real Redis cache script was added, but only its missing-configuration guard was run; live caching/invalidation remains unverified. Step 17 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -153,7 +153,7 @@ Acceptance criteria: Agent list and individual detail caches cannot continue ser
 Commit: fix: invalidate stale agent cache entries
 
 ### Step 17 — Verify Redis consistency
-Status: PENDING
+Status: COMPLETE
 
 Objective: Test cache hit/miss behaviour, expiry, invalidation, and Redis failure scenarios.
 

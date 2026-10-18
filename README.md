@@ -21,8 +21,9 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 13 is COMPLETE and committed locally as `25c803f` (`feat: configure Redis connection`). The project owner subsequently verified Redis Cloud with `node scripts/verify-redis.js`, reporting successful connection and PING/PONG.
 - Step 14 is COMPLETE and committed locally as `0977418` (`feat: cache agent list responses in Redis`). Live list-cache behavior has not been tested by the agent.
 - Step 15 is COMPLETE and committed locally as `09580c8` (`feat: cache individual agent responses`). Live detail-cache behavior has not been tested by the agent.
-- Step 16 is COMPLETE after 44 focused tests, all 117 server tests, and syntax checks passed. Changes remain uncommitted for review.
-- Steps 17-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 16 is COMPLETE and committed as `b8f8ec9` (`fix: invalidate stale agent cache entries`), with status documentation committed as `95aeef9`. Its verification results remain recorded below.
+- Step 17 is COMPLETE after 66 focused tests, all 128 server tests, and syntax/diff checks passed. Changes remain uncommitted for review; live cache verification has not been run.
+- Steps 18-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
 - `client/` remains empty. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
@@ -959,8 +960,63 @@ Actual commands run inside `server/` on October 18, 2026:
 
 `git diff --check` from the repository root also passed. Tests use mocked MongoDB and fake Redis; no live persistence or cache-invalidation integration test was performed. Coverage includes successful mutation invalidation across list variants, detail-key deletion, failed mutations leaving caches untouched, unavailable/erroring/stalled Redis, late cache fills, concurrent initialization and invalidation, and complete HTTP CRUD flows with caching enabled and disabled. No dependencies were added. The real `server/.env` was not accessed or modified, and nothing was staged or committed. Steps 17-30 remain pending.
 
-After review, the suggested Step 16 commit message for you to execute is:
+## Step 17 cache consistency and recovery
+
+`test/cache-consistency.test.js` exercises the real Express app and cache services together with fake Redis and an isolated mocked Agent store. `test-support/mockAgentStore.js` was extracted from the existing CRUD lifecycle test so both suites share the same storage simulation. It is not a MongoDB query-engine simulation: search/filter/sort behavior remains covered by the existing dedicated query-contract tests.
+
+| Behavior | Verification |
+| --- | --- |
+| Successful mutations | Existing invalidation tests cover every list variant and affected detail deletion; the HTTP CRUD lifecycle covers creation after a cached empty list. New HTTP checks warm list/detail caches before update and delete and assert fresh values or 404 afterward. |
+| Failed MongoDB writes | Warm payloads and generation stay unchanged after duplicate creation and unexpected create/update/delete failures; subsequent hits still skip MongoDB. Existing tests cover validation and missing-target failures. |
+| Hit/miss and expiry | HTTP spies confirm hits skip list/count/detail queries. Fake time advances exactly 60 seconds, then both caches fall back to MongoDB. Existing tests cover configured TTL, empty results, and malformed payloads. |
+| Redis reads/writes | Payload GET, payload SET, and generation GET failures preserve correct MongoDB-backed list/detail responses and safe logs; restoring these operations permits hits again. |
+| Invalidation outages | Missing Redis, generation SET failure, and detail DEL failure preserve successful PATCH/POST/DELETE responses. Follow-up reads show updated MongoDB results, and deleted records return 404. |
+| Recovery | Availability alone, repeated failed invalidations, and another process rotating the generation do not clear local bypass. A later successful local mutation plus generation rotation and detail deletion restores usable caching. |
+| Overlap | New checks hold detail deletion pending and verify both cache reads and fills are blocked until completion. Existing tests cover old fills, generation initialization/eviction, shared state across managers, stalled commands, and an earlier success completing after another invalidation fails. |
+
+There was no concrete production-code bug uncovered by these checks, so the cache algorithm, endpoint contracts, dependencies, and TTL configuration remain unchanged.
+
+The bypass flag is a safety latch, not an indication that Redis is reachable. After an invalidation fails, this process cannot assume its previously cached data is correct. It keeps using MongoDB until its own later successful invalidation establishes a fresh shared generation. Simple read/write errors do not set that latch because no database mutation requiring invalidation occurred. The existing Redis lifecycle intentionally disables automatic reconnect: runtime connection loss needs an explicit reconnect or restart. Fake availability recovery in the tests verifies cache policy, not a live network reconnect.
+
+The existing limits still apply: MongoDB and Redis are not one transaction; other instances may serve stale data after a failed invalidation until TTL expiry; local bypass does not survive restart. In-flight reads can finish with older results, and direct database writes are not invalidated. This step does not introduce a background recovery loop or durable retry queue.
+
+Run the focused checks inside `server/`:
+
+```powershell
+node --test test/cache-consistency.test.js test/cache-invalidation.test.js test/crud-flow.test.js test/get-agent.test.js test/list-agents.test.js test/redis.test.js test/integration-script.test.js
+npm test
+```
+
+### Optional real Redis cache verification
+
+Use a disposable/test Redis database with GET, SET (including NX and expiry), and DEL permissions on `fleetflow:verification:*`. Privately supply `FLEETFLOW_TEST_REDIS_URL` through your process environment or secret manager. The script never loads `.env` and does not fall back to the application's `REDIS_URL`. With that variable already set, run inside `server/`:
+
+```powershell
+node scripts/verify-cache.js
+```
+
+`verify-cache.js` connects through the existing Redis lifecycle and uses the production cache services. A random UUID prefix isolates every key from production API caches. It checks list/detail hits and misses, JSON round trips, real expiry with a short one-second TTL, a new generation after invalidation, physical detail deletion, and rejection of late old-generation fills. It deletes only the exact keys tracked by that run and closes the client. A 15-second overall deadline bounds execution. A forced timeout or cleanup failure can leave a small verification metadata key; payloads expire within 60 seconds. No wildcard deletion or database flush is used. A PASS line followed by a nonzero exit code means cleanup failed; require exit code zero.
+
+This script does not connect MongoDB, make API mutations, or prove cross-service persistence consistency. Redis outages and concurrency use deterministic fakes in the normal tests. The script's missing-configuration guard is tested without network access. **The live Redis cache check has not been run by the agent.** The earlier PING/PONG remains connectivity evidence only.
+
+### Step 17 verification results
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/cache-consistency.test.js test/cache-invalidation.test.js test/crud-flow.test.js test/get-agent.test.js test/list-agents.test.js test/redis.test.js test/integration-script.test.js` | Final run: all 66 focused tests passed; an earlier run of 65 tests also passed before the final cross-process bypass check was added |
+| `npm test` | All 128 tests passed; 0 failed, 0 skipped |
+| `node --check test-support/mockAgentStore.js` | Passed |
+| `node --check test/crud-flow.test.js` | Passed |
+| `node --check test/cache-consistency.test.js` | Passed |
+| `node --check test/integration-script.test.js` | Passed |
+| `node --check scripts/verify-cache.js` | Passed |
+
+`git diff --check` from the repository root passed. All automated cache/CRUD checks used fake Redis and mocked MongoDB. Only the optional script's missing-configuration guard was executed; no live cache integration was performed. Production code and dependencies are unchanged. No private `.env` was read or modified, and no files were staged or committed. Step 17 acceptance criteria passed; Steps 18-30 remain pending.
+
+After review, the suggested Step 17 commit message for you to execute is:
 
 ```text
-fix: invalidate stale agent cache entries
+test: verify Redis caching and consistency
 ```
