@@ -12,6 +12,11 @@ export async function startServer(config, {
 } = {}) {
   let server;
 
+  // Pass validated settings to routes without importing private env configuration there.
+  if (application.locals) {
+    application.locals.agentListCacheTtlSeconds = config.AGENT_LIST_CACHE_TTL_SECONDS;
+  }
+
   async function disconnectServices() {
     try {
       await redis.disconnect();

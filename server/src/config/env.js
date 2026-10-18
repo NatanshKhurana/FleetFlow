@@ -35,10 +35,17 @@ const mongoSchema = z.string({ error: mongoMessage }).trim().min(1, mongoMessage
 const optionalServiceValue = z.string().trim().optional()
   .transform((value) => value || undefined);
 
+const cacheTtlMessage = 'AGENT_LIST_CACHE_TTL_SECONDS must be a whole number from 1 to 86400.';
+const cacheTtlSchema = z.string({ error: cacheTtlMessage }).trim()
+  .regex(/^[1-9]\d*$/, cacheTtlMessage).transform(Number)
+  .pipe(z.number().int(cacheTtlMessage).min(1, cacheTtlMessage).max(86400, cacheTtlMessage))
+  .default(60);
+
 const envSchema = z.object({
   PORT: portSchema,
   MONGODB_URI: mongoSchema,
   REDIS_URL: optionalServiceValue,
+  AGENT_LIST_CACHE_TTL_SECONDS: cacheTtlSchema,
 });
 
 const result = envSchema.safeParse(process.env);
@@ -46,7 +53,7 @@ const result = envSchema.safeParse(process.env);
 if (!result.success) {
   // Report field names and instructions, never submitted values or credentials.
   const details = result.error.issues.map((issue) => `- ${issue.message}`).join('\n');
-  throw new Error(`Invalid environment configuration:\n${details}\nSet PORT and MONGODB_URI in server/.env or the process environment.`);
+  throw new Error(`Invalid environment configuration:\n${details}\nCheck PORT, MONGODB_URI, and optional AGENT_LIST_CACHE_TTL_SECONDS in server/.env or the process environment.`);
 }
 
 export const env = result.data;

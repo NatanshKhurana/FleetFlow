@@ -9,7 +9,8 @@ test('optional CRUD script requires explicit process configuration without loadi
     if (key.toUpperCase() === 'FLEETFLOW_TEST_MONGODB_URI') delete environment[key];
   }
   const result = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/verify-crud.js', import.meta.url))], {
-    env: environment, encoding: 'utf8', timeout: 5000,
+    // Cold application imports can exceed five seconds during the parallel suite.
+    env: environment, encoding: 'utf8', timeout: 15000,
   });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');

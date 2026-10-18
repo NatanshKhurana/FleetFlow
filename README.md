@@ -18,11 +18,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 10 is COMPLETE and committed locally as `7e699d9` (`feat: add update agent API`).
 - Step 11 is COMPLETE and committed locally as `a40ea0e` (`feat: add delete agent API`).
 - Step 12 is COMPLETE and committed locally as `c57405e` (`test: strengthen CRUD API coverage`). Its optional live MongoDB script has not been run.
-- Step 13 is COMPLETE after 27 focused tests and all 87 server tests passed. Changes remain uncommitted for review; live Redis connectivity has not been tested.
-- Steps 14-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 13 is COMPLETE and committed locally as `25c803f` (`feat: configure Redis connection`). The project owner subsequently verified Redis Cloud with `node scripts/verify-redis.js`, reporting successful connection and PING/PONG.
+- Step 14 is COMPLETE after 37 focused tests and all 97 server tests passed. Changes remain uncommitted for review; live list-cache behavior has not been tested.
+- Steps 15-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. Redis connection management is available, but no endpoint uses caching yet. There is no authentication. Normal tests use mocked services; live Redis connectivity has not been checked in Step 13.
+- `client/` remains empty. `GET /api/agents` uses optional Redis caching with a default 60-second TTL; single-agent caching and mutation invalidation remain pending. There is no authentication. Normal tests use mocked services; live list-cache behavior has not been checked in Step 14.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
@@ -40,7 +41,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents, listing with search/filters, fetching a single agent, partial updates, and deletion are implemented with request validation and safe error responses. Dashboard screens and Redis caching remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents, listing with search/filters, fetching a single agent, partial updates, and deletion are implemented with request validation and safe error responses. List caching is implemented; single-agent caching, cache invalidation, and dashboard screens remain planned.
 
 ## High-level architecture
 
@@ -73,6 +74,8 @@ FleetFlow/
 |   |   |   `-- agentRoutes.js       All five agent routes and request validation
 |   |   |-- controllers/
 |   |   |   `-- agentController.js   Create/list/detail/update/delete handlers
+|   |   |-- services/
+|   |   |   `-- agentListCache.js    List cache keys, JSON checks, and Redis reads/writes
 |   |   |-- validation/
 |   |   |   `-- agentSchemas.js     Create/update bodies, list query, and ID params
 |   |   |-- config/
@@ -138,7 +141,7 @@ Direct dependencies are Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, Mongoose 9.11.2
 
 ## MongoDB Atlas prerequisites and startup
 
-MongoDB is FleetFlow's persistent database: it retains created agents between server restarts. Redis is optional and connects only when configured; endpoint caching starts in later steps. The create route imports the existing Agent model. Mongoose can initialize its collection and indexes after connection; the controller also waits for `Agent.init()` before writing so duplicate protection is ready.
+MongoDB is FleetFlow's persistent database: it retains created agents between server restarts. Redis is optional and connects only when configured; it now caches successful agent-list responses. The create route imports the existing Agent model. Mongoose can initialize its collection and indexes after connection; the controller also waits for `Agent.init()` before writing so duplicate protection is ready.
 
 Before starting, have an active Atlas cluster, a database user with access to the intended FleetFlow database, and your current machine's IP permitted in Atlas Network Access. A database user is separate from an Atlas website account. Obtain the Node.js driver connection URI privately from Atlas, fill in the database user's credentials and application database name locally, and save it as `MONGODB_URI` in `server/.env`. Encode special characters in credentials as required by the URI format. Do not paste the URI into chat, logs, documentation, or Git. Existing `.env` files must be preserved; the guarded PowerShell copy above only creates one when absent.
 
@@ -191,8 +194,9 @@ Edit `server/.env` after copying `server/.env.example` only when needed. The tem
 | `PORT` | Required TCP port. Must contain decimal digits representing a whole number from 1 through 65535. It is converted from text to a number before the server listens. There is no silent fallback for a missing or invalid value. |
 | `MONGODB_URI` | Required non-empty private MongoDB connection URI. Whitespace is trimmed and MongoDB's driver parser checks URI syntax, including standard and SRV formats, without connecting. Missing, blank, placeholder, and malformed values are rejected without printing them. Valid syntax does not prove that credentials or network access work; startup checks the real connection. |
 | `REDIS_URL` | Optional private `redis://` or `rediss://` connection URL; `rediss` uses TLS. Missing/blank skips Redis; nonblank text is trimmed and passed to the client. Invalid URL syntax or connection failures produce fixed warnings and leave Redis unavailable without preventing HTTP startup. Configure real values privately. |
+| `AGENT_LIST_CACHE_TTL_SECONDS` | Optional list-cache lifetime. Defaults to **60** when absent. If supplied, must be decimal whole-number text from **1 to 86400**, with surrounding whitespace allowed. Blank, zero, fractional, out-of-range, and nonnumeric values fail configuration validation with a fixed readable error. Applies to new cache writes; changing it does not alter already stored entries. |
 
-`src/config/env.js` uses a path relative to its own location to load `server/.env`, even when Node starts from the repository root. Existing process variables take precedence over values in the file. A missing file is allowed when the process environment supplies valid `PORT` and `MONGODB_URI`; an unreadable file fails with a readable error. The loader validates before the HTTP listener starts and exports `env` for other modules. Only expected fields are exported. Error messages do not print submitted values or credentials.
+`src/config/env.js` uses a path relative to its own location to load `server/.env`, even when Node starts from the repository root. Existing process variables take precedence over values in the file. A missing file is allowed when the process environment supplies valid `PORT` and `MONGODB_URI`; an unreadable file fails with a readable error. The loader validates before the HTTP listener starts and exports `env` for other modules. Startup passes the validated list TTL through Express `app.locals`, so controllers do not import or load private environment configuration. Only expected fields are exported. Error messages do not print submitted values or credentials.
 
 This uses dotenv's explicit path and override options and Zod's schema parsing; see the [dotenv documentation](https://github.com/motdotla/dotenv#readme) and [Zod API documentation](https://zod.dev/api).
 
@@ -202,11 +206,11 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 
 ## Redis connection management
 
-`server/src/config/redis.js` exports `connectRedis(url)`, `disconnectRedis()`, and `getRedisClient()`. Startup passes `env.REDIS_URL` to the connection function; this module never loads `.env` itself. `getRedisClient()` returns the shared ready client or `null` when unavailable. Later caching steps can reuse that client. Importing the module opens no connection, and Step 13 does not read/write cache entries or change any endpoint.
+`server/src/config/redis.js` exports `connectRedis(url)`, `disconnectRedis()`, and `getRedisClient()`. Startup passes `env.REDIS_URL` to the connection function; this module never loads `.env` itself. `getRedisClient()` returns the shared ready client or `null` when unavailable. The list-cache service reuses this client. Importing the module opens no connection.
 
 `connectRedis()` creates one client using node-redis. Concurrent connection requests share an attempt; calls after success reuse the ready client. Missing configuration returns `null` without creating a client. A configured attempt has a three-second socket timeout and a three-second overall deadline covering DNS/authentication/handshake work. URL parsing and connection failures return `null` with fixed messages. Raw errors, passwords, hostnames, and URLs are never logged.
 
-Automatic reconnection is disabled with `socket.reconnectStrategy: false`, and offline command queuing is disabled. A startup or runtime outage leaves Redis unavailable while MongoDB-backed requests remain usable. The ready-client getter returns `null` after a connection loss. There is no background recovery loop: restart the backend or explicitly call `connectRedis()` again after restoring the service. No request currently uses Redis, and a later caching step must handle an unavailable client.
+Automatic reconnection is disabled with `socket.reconnectStrategy: false`, and offline command queuing is disabled. A startup or runtime outage leaves Redis unavailable while MongoDB-backed requests remain usable. The ready-client getter returns `null` after a connection loss. There is no background recovery loop: restart the backend or explicitly call `connectRedis()` again after restoring the service. List requests fall back to MongoDB whenever Redis is unavailable.
 
 `disconnectRedis()` shares repeated cleanup calls. It uses `client.close()` to close a ready connection, then `client.destroy()` if graceful close fails or exceeds one second. A connecting client is destroyed and its bounded connection attempt is allowed to settle. Internal timers are cleared. `createRedisConnection()` makes an independent manager for tests, accepting a fake client factory, logger, and shorter test deadlines; production uses the shared `redisConnection`. The [node-redis documentation](https://github.com/redis/node-redis) describes client lifecycle methods; its [configuration reference](https://github.com/redis/node-redis/blob/master/docs/client-configuration.md) describes reconnect and offline-queue options.
 
@@ -225,7 +229,7 @@ For an optional real connectivity check, configure `FLEETFLOW_TEST_REDIS_URL` pr
 node scripts/verify-redis.js
 ```
 
-This separate script never loads `.env` or falls back to `REDIS_URL`. It connects, requires `PING` to return `PONG`, and closes the client. It writes no data and has an eight-second overall deadline. The normal suite checks its missing-configuration guard without connecting. **No live Redis check was run in Step 13**; only mocked lifecycle checks, the real client's malformed-URL rejection, and the script guard were verified. If using the optional script, ensure the Redis user permits PING and TLS/credentials are configured privately.
+This separate script never loads `.env` or falls back to `REDIS_URL`. It connects, requires `PING` to return `PONG`, and closes the client. It writes no data and has an eight-second overall deadline. The normal suite checks its missing-configuration guard without connecting. The project owner reported a successful real Redis Cloud connection and PING/PONG using this command after Step 13. This verifies connectivity, not list-cache reads, writes, or expiry. No live caching check was run during Step 14. For list caching, the Redis user also needs GET and SET permission for the list-cache prefix; configure TLS/credentials privately.
 
 ## Backend files and request flow
 
@@ -235,6 +239,7 @@ This separate script never loads `.env` or falls back to `REDIS_URL`. It connect
 - `server/src/config/env.js` loads the file, then uses a Zod schema to describe allowed configuration. `safeParse()` returns validated data or validation issues. The port schema checks decimal text, converts it with `Number`, and enforces the TCP range. MongoDB URI syntax is required and checked by constructing a driver client without opening it. Optional Redis blanks normalize to `undefined`. Invalid configuration throws a readable error before the server can listen. The module exports only the validated `env` object.
 - `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
 - `server/src/config/redis.js` manages the optional shared Redis client with connection/close deadlines and safe fixed logs. Its factory supports isolated tests without a live service.
+- `server/src/services/agentListCache.js` builds deterministic list keys, checks cached JSON against the public response shape, and handles Redis failures with fixed warnings. It reads the existing ready client and writes the full response with an atomic expiry. Its factory accepts a fake client getter/logger for isolated tests.
 - `server/src/app.js` creates and exports the Express application without opening a network port. Middleware runs in order: `express.json()`, health, the `/api/agents` router, the unchanged JSON 404 fallback, and the existing `errorHandler` last.
 - `server/src/routes/agentRoutes.js` defines `POST /`, `GET /`, `GET /:id`, `PATCH /:id`, and `DELETE /:id`, mounted under `/api/agents`. All use the existing `validateRequest()` before their controller: `body` for create, `query` for list, `params` for detail/delete, and both `params` and `body` for update.
 - `server/src/validation/agentSchemas.js` defines create/list validation and `agentParamsSchema`, which requires exactly 24 hexadecimal characters. `updateAgentSchema` picks only editable fields from the create schema, makes them optional, removes undefined values, and requires at least one supplied value. It preserves strict rejection of unknown keys and existing normalization without adding defaults.
@@ -250,7 +255,7 @@ This separate script never loads `.env` or falls back to `REDIS_URL`. It connect
 - `server/test/redis.test.js` checks optional Redis lifecycle behavior using injected fake clients. The startup/environment/script tests also cover the new configuration and cleanup paths.
 - `server/test/request-errors.test.js` uses isolated Express apps with test-only routes to exercise validation and error responses over HTTP. It also checks the already-sent-response guard directly. No test routes are added to the production app.
 - `server/test/create-agent.test.js` exercises the production app over HTTP while mocking `Agent.init()` and `Agent.create()`. The mock creates and validates real in-memory Agent documents, but supplies simulated persistence timestamps; it does not prove storage.
-- `server/test/list-agents.test.js` exercises the production GET route with mocked `Agent.find()` query chains and `Agent.countDocuments()`. It checks filters, escaped regexes, projection, sort, skip/limit, metadata, invalid queries, empty pages, and safe error responses without a database connection.
+- `server/test/list-agents.test.js` exercises the production GET route with mocked MongoDB queries and optional fake Redis. It checks filters, escaped regexes, projection, sort, skip/limit, metadata, invalid queries, empty pages, safe errors, cache hits/misses, key normalization/separation, malformed cached data, expiry options, and Redis read/write failures. A fake clock checks expiry without a real service or timed sleep; ordinary list tests explicitly use missing Redis.
 - `server/test/get-agent.test.js` mocks `Agent.findById()` while exercising the production detail route over HTTP. It verifies the exact targeted ID, projection, public response fields, malformed ID rejection, uppercase hex handling, missing records, and safe unexpected errors. It also ensures the lookup does not call `Agent.find()` to fetch the list.
 - `server/test/update-agent.test.js` exercises PATCH over HTTP with mocked model updates, checks the targeted query and supplied fields, and tests normalization and errors. One additional test executes real Mongoose query middleware with a mocked collection method to verify timestamps and update validation. It never opens a database connection or proves persistence.
 - `server/test/delete-agent.test.js` uses real HTTP routing and middleware with a mocked `Agent.findByIdAndDelete()` query. It verifies the targeted ID, projection, empty 204 response, malformed/uppercase IDs, missing records, safe 500 errors, and that neither a full-list query nor bulk deletion is used. No stored records are deleted by these tests.
@@ -413,6 +418,31 @@ The database performs sorting and pagination using `skip((page - 1) * limit)` an
 
 Run `node --test test/list-agents.test.js test/create-agent.test.js` inside `server/` for focused list/create regression tests, or `npm test` for the full suite. Step 8 tests mock database calls and assert query construction and HTTP behavior. No real database check was run for Step 8, and `server/.env` was not read or changed.
 
+## Agent-list caching
+
+Only **`GET /api/agents`** (including its normal trailing-slash form) uses Redis in Step 14. Input is validated first. A successful Redis hit returns the same JSON success envelope, public agent fields, and pagination metadata as a MongoDB response; neither `Agent.find()` nor `Agent.countDocuments()` runs on a hit. Other endpoints do not use this cache.
+
+On a miss, the controller runs the existing MongoDB list/count queries, formats the public response, and stores that whole JSON response in Redis. Valid empty results and pages beyond the last page are cached too. Invalid query requests and database failures are never cached. Missing Redis, command errors/timeouts, malformed JSON, invalid public fields, or mismatched pagination cause a miss. Redis write failures still return the successful MongoDB result. Warnings never include raw errors, cached data, search values, keys, or credentials.
+
+Keys have the form `fleetflow:agents:list:v1:<sha256>`. The hash uses a fixed-order JSON object containing **`page`, `limit`, `search`, `status`, and `serviceArea`** after the existing query schema has applied defaults and trimming. Empty optional text is equivalent to omission. Query-string ordering does not matter. Different response-affecting values have separate keys; service-area case is preserved because its filter is case-sensitive. Search case is also preserved, so equivalent searches with different letter case can occupy separate entries. Hashing keeps raw contact/search text out of key names; it does not encrypt the response value.
+
+For example, `/api/agents` and `/api/agents?limit=10&page=1` share a cache entry. `/api/agents?page=2` and `/api/agents?status=inactive` use different entries. All filtering and pagination behavior remains the same as documented above.
+
+Each successful cache write uses one Redis SET with an `EX` expiration of `AGENT_LIST_CACHE_TTL_SECONDS`, default **60 seconds**. Redis expires the entry automatically; the next request queries MongoDB and fills it again. Hits do not refresh the TTL. Each Redis GET/SET uses a one-second command timeout through [node-redis command options](https://github.com/redis/node-redis/blob/master/docs/command-options.md); an unsuccessful read followed by an unsuccessful write can add up to two seconds of cache waiting before the MongoDB response is returned. MongoDB time is additional.
+
+**Invalidation is deferred to Step 16.** Create, update, and delete do not clear list entries yet, so cached lists and totals can remain stale until their TTL expires, including a cached empty list after creation. Use a short TTL while reviewing Step 14. Simultaneous misses may each query MongoDB; no locking or request coalescing is introduced. Individual-agent caching remains Step 15.
+
+The template now includes safe `AGENT_LIST_CACHE_TTL_SECONDS=60`. Existing `.env` files need no change to use the default. To choose a different lifetime later, configure the variable privately as a whole number from 1 to 86400 and restart the backend; blank or invalid values fail startup validation without echoing the value. Keep the real `.env` untracked. The normal test suite never loads it.
+
+Run in `server/`:
+
+```powershell
+node --test test/list-agents.test.js test/env.test.js test/startup.test.js
+npm test
+```
+
+Caching tests use fake Redis and mocked MongoDB. They verify serialization, key construction, skipped database calls, the exact expiry command option, and fake-clock expiry at 60 seconds. They do not claim live Redis expiry or real MongoDB persistence coverage. The project owner's earlier PING/PONG check establishes real Redis connectivity only.
+
 ## Get a single delivery agent
 
 **`GET /api/agents/:id`** retrieves one record. Step 9's roadmap specifies `:id` without explicitly naming the underlying identifier. To follow the existing response convention, this endpoint uses the public `id` from create/list responses: MongoDB's `_id` represented as a 24-character hexadecimal string. It does **not** look up the separate business `agentId` or fall back to that field.
@@ -563,7 +593,7 @@ The Step 12 audit preserved existing focused tests and added checks for interact
 | Coverage | Test files and evidence |
 | --- | --- |
 | Create success/defaults/normalization, required fields, invalid bodies, duplicate 409, safe 500 | `create-agent.test.js`; schema rules in `agent.test.js` |
-| List pagination/defaults/maximum, search escaping, combined filters, empty/out-of-range pages, query errors | `list-agents.test.js` asserts MongoDB filters, sorting, projection, skip/limit, and count calls |
+| List pagination/defaults/maximum, search escaping, combined filters, empty/out-of-range pages, query errors; cache hits/misses, keys, expiry options, safe Redis fallback | `list-agents.test.js` asserts MongoDB queries and uses fake Redis for caching |
 | Single-agent success, malformed/uppercase IDs, valid missing IDs, targeted lookup, safe 500 | `get-agent.test.js` |
 | Partial update, normalization, omitted fields, immutable fields, empty/invalid bodies, 404/409/500 | `update-agent.test.js`, including real Mongoose timestamp/validation middleware against a mocked collection |
 | Delete 204 with empty body, invalid/missing IDs, targeted operation, safe 500 | `delete-agent.test.js` |
@@ -811,10 +841,30 @@ Actual commands run inside `server/` on October 18, 2026:
 | `node --check test/integration-script.test.js` | Passed |
 | `node --check scripts/verify-redis.js` | Passed |
 
-`git diff --check` from the repository root also passed. Tests use fake Redis clients; malformed-URL handling uses the installed real client without connecting. The optional PING script's missing-configuration guard passed, but **no live Redis integration was performed**. MongoDB gating, health responses after Redis failure, startup cancellation, and repeatable cleanup were verified with injected services. `server/.env` was not read or changed. No caching, endpoint changes, staging, or commits were added. Step 13 acceptance criteria passed with mocked connectivity verification; Steps 14-30 remain pending.
+`git diff --check` from the repository root also passed. Tests used fake Redis clients; malformed-URL handling used the installed real client without connecting. The optional PING script's missing-configuration guard passed; the agent did not perform live Redis integration during Step 13. MongoDB gating, health responses after Redis failure, startup cancellation, and repeatable cleanup were verified with injected services. `server/.env` was not read or changed. No caching, endpoint changes, staging, or commits were added in Step 13. After that step was committed, the project owner reported a successful Redis Cloud connection and PING/PONG using `node scripts/verify-redis.js`.
 
-After review, the suggested Step 13 commit message for you to execute is:
+## Step 14 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/list-agents.test.js test/env.test.js test/startup.test.js` | All 35 focused tests passed |
+| `npm test` | Initial run: 96 passed, 1 failed because the existing optional CRUD-script guard exceeded its 5-second child-process timeout. That test-only timeout was raised to 15 seconds without changing its assertions or any application timeout. Final rerun: all 97 tests passed. |
+| `node --test test/list-agents.test.js test/env.test.js test/startup.test.js test/integration-script.test.js` | All 37 focused tests passed after the guard-timeout correction |
+| `node --check src/services/agentListCache.js` | Passed |
+| `node --check src/controllers/agentController.js` | Passed |
+| `node --check src/config/env.js` | Passed |
+| `node --check src/startup.js` | Passed |
+| `node --check test/list-agents.test.js` | Passed |
+| `node --check test/env.test.js` | Passed |
+| `node --check test/startup.test.js` | Passed |
+| `node --check test/integration-script.test.js` | Passed |
+
+`git diff --check` from the root also passed. The 9 new list-cache tests exercise the production route with fake Redis and mocked MongoDB; the new TTL configuration test and existing startup test verify validation/defaults/overrides and propagation to Express. Default expiry is verified by fake-clock behavior and the Redis SET expiration argument, not by waiting on a live Redis server. No live cache integration was performed. The project owner's reported Redis Cloud PING/PONG remains connectivity evidence only. No dependencies, invalidation, single-agent caching, secrets access, staging, or commits were added. Step 14 acceptance criteria passed; Steps 15-30 remain pending.
+
+After review, the suggested Step 14 commit message for you to execute is:
 
 ```text
-feat: configure Redis connection
+feat: cache agent list responses in Redis
 ```

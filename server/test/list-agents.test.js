@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import test from 'node:test';
 import app from '../src/app.js';
 import Agent from '../src/models/Agent.js';
+import { agentListCache, agentListCacheKey, createAgentListCache } from '../src/services/agentListCache.js';
 
 function sampleAgent() {
   return new Agent({
@@ -13,7 +14,14 @@ function sampleAgent() {
   }).toObject();
 }
 
-async function startTestServer(t, { records = [], total = records.length, findError, countError } = {}) {
+async function startTestServer(t, { records = [], total = records.length, findError, countError, cacheClient = null, ttlSeconds } = {}) {
+  const logger = { warn: t.mock.fn() };
+  const cache = createAgentListCache({ getClient: () => cacheClient, logger });
+  t.mock.method(agentListCache, 'read', cache.read);
+  t.mock.method(agentListCache, 'write', cache.write);
+  const previousTtl = app.locals.agentListCacheTtlSeconds;
+  app.locals.agentListCacheTtlSeconds = ttlSeconds;
+  t.after(() => { app.locals.agentListCacheTtlSeconds = previousTtl; });
   // Capture the query contract; no mocked query attempts a live database call.
   const query = {};
   for (const method of ['select', 'sort', 'skip', 'limit', 'lean']) {
@@ -34,7 +42,7 @@ async function startTestServer(t, { records = [], total = records.length, findEr
     server.closeAllConnections();
   }));
   await once(server, 'listening');
-  return { base: `http://127.0.0.1:${server.address().port}`, find, count, query };
+  return { base: `http://127.0.0.1:${server.address().port}`, find, count, query, logger };
 }
 
 function get(base, query = '') {
@@ -178,4 +186,157 @@ test('find and count failures use the existing safe centralized 500 response', a
     assert.deepEqual(await response.json(), { success: false, message: 'Internal server error' });
   }
   assert.doesNotMatch(JSON.stringify(log.mock.calls.map((call) => call.arguments)), /fake-private|stack/);
+});
+
+function fakeRedis(t, { readError = false, writeError = false } = {}) {
+  const entries = new Map();
+  let now = 0;
+  const client = {
+    withCommandOptions: t.mock.fn((options) => {
+      assert.deepEqual(options, { timeout: 1000 });
+      return client;
+    }),
+    get: t.mock.fn(async (key) => {
+      if (readError) throw new Error('fake-private-redis-read-details');
+      const entry = entries.get(key);
+      return entry && entry.expiresAt > now ? entry.value : null;
+    }),
+    set: t.mock.fn(async (key, value, options) => {
+      if (writeError) throw new Error('fake-private-redis-write-details');
+      assert.equal(options.expiration.type, 'EX');
+      entries.set(key, { value, expiresAt: now + options.expiration.value * 1000 });
+      return 'OK';
+    }),
+    advance(milliseconds) { now += milliseconds; },
+    prime(key, value) { entries.set(key, { value, expiresAt: Infinity }); },
+  };
+  return client;
+}
+
+test('a list miss stores data and pagination together; a hit skips both MongoDB queries', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find, count } = await startTestServer(t, { cacheClient: redis, records: [sampleAgent()], total: 23 });
+  const first = await get(base);
+  assert.equal(first.status, 200);
+  const body = await first.json();
+  assert.deepEqual(JSON.parse(redis.set.mock.calls[0].arguments[1]), body);
+  assert.deepEqual(redis.set.mock.calls[0].arguments[2], { expiration: { type: 'EX', value: 60 } });
+  const second = await get(base);
+  assert.equal(second.status, 200);
+  assert.deepEqual(await second.json(), body);
+  assert.equal(find.mock.callCount(), 1);
+  assert.equal(count.mock.callCount(), 1);
+  assert.equal(redis.set.mock.callCount(), 1);
+});
+
+test('normalized defaults, trimmed values, and query ordering produce the same cache key', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find } = await startTestServer(t, { cacheClient: redis });
+  const paths = [
+    '', '?page=1&limit=10&search=%20&serviceArea=%20',
+    '?search=%20Alex%20&status=%20active%20&serviceArea=%20Central%20',
+    '?serviceArea=Central&status=active&search=Alex&page=1&limit=10',
+  ];
+  for (const path of paths) assert.equal((await get(base, path)).status, 200);
+  const keys = redis.get.mock.calls.map((call) => call.arguments[0]);
+  assert.equal(keys[0], keys[1]);
+  assert.equal(keys[2], keys[3]);
+  assert.equal(find.mock.callCount(), 2);
+  assert.match(keys[2], /^fleetflow:agents:list:v1:[a-f0-9]{64}$/);
+  assert.doesNotMatch(keys[2], /Alex|Central/);
+});
+
+test('every response-affecting query parameter has a distinct key without delimiter collisions', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find } = await startTestServer(t, { cacheClient: redis });
+  const paths = ['', '?page=2', '?limit=5', '?search=Alex', '?status=active', '?status=inactive', '?serviceArea=Central', '?serviceArea=central'];
+  for (const path of paths) assert.equal((await get(base, path)).status, 200);
+  assert.equal(new Set(redis.get.mock.calls.map((call) => call.arguments[0])).size, paths.length);
+  assert.equal(find.mock.callCount(), paths.length);
+  assert.notEqual(
+    agentListCacheKey({ page: 1, limit: 10, search: 'a|b', serviceArea: 'c' }),
+    agentListCacheKey({ page: 1, limit: 10, search: 'a', serviceArea: 'b|c' }),
+  );
+});
+
+test('empty and beyond-last-page results are cached with their pagination metadata', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find, count } = await startTestServer(t, { cacheClient: redis, total: 12 });
+  const first = await get(base, '?page=99&limit=5');
+  const body = await first.json();
+  assert.deepEqual(body.data, []);
+  assert.deepEqual(body.pagination, { page: 99, limit: 5, total: 12, totalPages: 3 });
+  const second = await get(base, '?limit=5&page=99');
+  assert.equal(second.status, 200);
+  assert.deepEqual(await second.json(), body);
+  assert.equal(find.mock.callCount(), 1);
+  assert.equal(count.mock.callCount(), 1);
+});
+
+test('the default TTL expires after 60 seconds and cache hits do not extend it', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find } = await startTestServer(t, { cacheClient: redis });
+  await (await get(base)).json();
+  redis.advance(59999);
+  assert.deepEqual((await (await get(base)).json()).data, []);
+  assert.equal(find.mock.callCount(), 1);
+  redis.advance(1);
+  assert.equal((await get(base)).status, 200);
+  assert.equal(find.mock.callCount(), 2);
+  assert.equal(redis.set.mock.callCount(), 2);
+});
+
+test('the configured TTL is passed to the Redis expiry option', async (t) => {
+  const redis = fakeRedis(t);
+  const { base } = await startTestServer(t, { cacheClient: redis, ttlSeconds: 120 });
+  assert.equal((await get(base)).status, 200);
+  assert.deepEqual(redis.set.mock.calls[0].arguments[2], { expiration: { type: 'EX', value: 120 } });
+});
+
+test('malformed JSON, wrong payloads, internal fields, and mismatched pagination fall back to MongoDB', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find, logger } = await startTestServer(t, { cacheClient: redis, records: [sampleAgent()] });
+  const valid = await (await get(base)).json();
+  const key = redis.get.mock.calls[0].arguments[0];
+  const cases = [
+    '{fake-private-broken-json', 'null', '{}',
+    JSON.stringify({ ...valid, data: [{ ...valid.data[0], __v: 1 }] }),
+    JSON.stringify({ ...valid, pagination: { ...valid.pagination, page: 2 } }),
+    JSON.stringify({ ...valid, pagination: { ...valid.pagination, totalPages: 9 } }),
+  ];
+  for (const value of cases) {
+    redis.prime(key, value);
+    const response = await get(base);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), valid);
+  }
+  assert.equal(find.mock.callCount(), 1 + cases.length);
+  assert.doesNotMatch(JSON.stringify(logger.warn.mock.calls.map((call) => call.arguments)), /fake-private|__v|stack/);
+});
+
+test('Redis read or write errors preserve successful MongoDB responses and hide internal details', async (t) => {
+  for (const option of ['readError', 'writeError']) {
+    const redis = fakeRedis(t, { [option]: true });
+    const { base, find, count, logger } = await startTestServer(t, { cacheClient: redis, records: [sampleAgent()] });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await get(base);
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).data[0].agentId, 'AGENT-001');
+    }
+    assert.equal(find.mock.callCount(), 2);
+    assert.equal(count.mock.callCount(), 2);
+    assert.ok(logger.warn.mock.callCount() > 0);
+    assert.doesNotMatch(JSON.stringify(logger.warn.mock.calls.map((call) => call.arguments)), /fake-private|stack/);
+  }
+});
+
+test('invalid query input never reaches Redis and MongoDB errors are never cached', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find } = await startTestServer(t, { cacheClient: redis, findError: new Error('fake-private-query-error') });
+  t.mock.method(console, 'error', () => {});
+  assert.equal((await get(base, '?page=0')).status, 400);
+  assert.equal(redis.get.mock.callCount(), 0);
+  assert.equal(find.mock.callCount(), 0);
+  assert.equal((await get(base)).status, 500);
+  assert.equal(redis.set.mock.callCount(), 0);
 });

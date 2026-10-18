@@ -1,5 +1,6 @@
 import Agent from '../models/Agent.js';
 import { ApiError } from '../utils/ApiError.js';
+import { agentListCache } from '../services/agentListCache.js';
 
 function publicAgent(agent) {
   // All agent endpoints expose the same fields, without Mongoose internals.
@@ -42,6 +43,9 @@ function escapeRegex(text) {
 
 export async function listAgents(request, response, next) {
   try {
+    const cached = await agentListCache.read(request.validated.query);
+    if (cached) return response.status(200).json(cached);
+
     const { page, limit, search, status, serviceArea } = request.validated.query;
     const filter = {};
     if (status) filter.status = status;
@@ -65,12 +69,14 @@ export async function listAgents(request, response, next) {
       Agent.countDocuments(filter).exec(),
     ]);
 
-    return response.status(200).json({
+    const result = {
       success: true,
       message: 'Agents retrieved successfully',
       data: agents.map(publicAgent),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    });
+    };
+    await agentListCache.write(request.validated.query, result, request.app.locals.agentListCacheTtlSeconds);
+    return response.status(200).json(result);
   } catch (error) {
     return next(error);
   }

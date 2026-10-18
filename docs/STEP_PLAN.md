@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-13 are **COMPLETE** after verification; Steps 14-30 remain **PENDING**. Steps 1-12 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, `a40ea0e`, and `c57405e`. Step 13's 27 focused tests and all 87 server tests passed. Redis connectivity and lifecycle were verified with mocks; no live Redis check was performed. The optional PING script's configuration guard and syntax passed. Step 13 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-14 are **COMPLETE** after verification; Steps 15-30 remain **PENDING**. Steps 1-13 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, `a40ea0e`, `c57405e`, and `25c803f`. The project owner subsequently verified real Redis Cloud connectivity and PING/PONG using `node scripts/verify-redis.js`. Step 14's 37 focused tests and all 97 server tests passed with fake Redis and mocked MongoDB; live list-cache behavior was not tested. Step 14 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -126,7 +126,7 @@ Acceptance criteria: Redis connectivity is verified and connection failures are 
 Commit: feat: integrate Redis client
 
 ### Step 14 — Cache agent list
-Status: PENDING
+Status: COMPLETE
 
 Objective: Implement cache-aside caching for GET /api/agents.
 

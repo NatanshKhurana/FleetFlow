@@ -29,7 +29,7 @@ function createFixture(t, fileContents) {
 function runConfig(directory, overrides = {}, cwd = directory) {
   const environment = { ...process.env };
   for (const key of Object.keys(environment)) {
-    if (['PORT', 'MONGODB_URI', 'REDIS_URL'].includes(key.toUpperCase())) {
+    if (['PORT', 'MONGODB_URI', 'REDIS_URL', 'AGENT_LIST_CACHE_TTL_SECONDS'].includes(key.toUpperCase())) {
       delete environment[key];
     }
   }
@@ -48,7 +48,7 @@ test('loads .env independently of cwd; blank Redis remains optional', (t) => {
   const directory = createFixture(t, `PORT=5100\nMONGODB_URI=${testUri}\nREDIS_URL=\n`);
   const result = runConfig(directory, { MONGODB_URI: undefined }, serverDirectory);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { PORT: 5100, MONGODB_URI: testUri });
+  assert.deepEqual(JSON.parse(result.stdout), { PORT: 5100, MONGODB_URI: testUri, AGENT_LIST_CACHE_TTL_SECONDS: 60 });
 });
 
 test('process PORT takes precedence over .env', (t) => {
@@ -63,7 +63,7 @@ test('missing .env is allowed with a valid process PORT, including TCP boundarie
   for (const PORT of ['1', '65535']) {
     const result = runConfig(directory, { PORT });
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { PORT: Number(PORT), MONGODB_URI: testUri });
+    assert.deepEqual(JSON.parse(result.stdout), { PORT: Number(PORT), MONGODB_URI: testUri, AGENT_LIST_CACHE_TTL_SECONDS: 60 });
   }
 });
 
@@ -89,6 +89,21 @@ test('optional Redis configuration stays absent when missing or blank and trims 
     const result = runConfig(directory, { PORT: '5000', REDIS_URL });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).REDIS_URL, REDIS_URL?.trim() || undefined);
+  }
+});
+
+test('cache TTL uses its default, validates bounds, and respects process overrides', (t) => {
+  const directory = createFixture(t, 'AGENT_LIST_CACHE_TTL_SECONDS=120\n');
+  for (const value of [undefined, '1', '300', '86400']) {
+    const result = runConfig(directory, { PORT: '5000', ...(value === undefined ? {} : { AGENT_LIST_CACHE_TTL_SECONDS: value }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).AGENT_LIST_CACHE_TTL_SECONDS, value === undefined ? 120 : Number(value));
+  }
+  for (const value of ['', '0', '-1', '1.5', '86401', 'private-test-value']) {
+    const result = runConfig(directory, { PORT: '5000', AGENT_LIST_CACHE_TTL_SECONDS: value });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /AGENT_LIST_CACHE_TTL_SECONDS must be a whole number from 1 to 86400/);
+    assert.doesNotMatch(result.stderr, /private-test-value/);
   }
 });
 

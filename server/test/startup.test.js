@@ -83,7 +83,9 @@ test('an occupied HTTP port fails startup and closes the database connection', a
 
 test('startup connects MongoDB then Redis, and repeated shutdown closes both once', async (t) => {
   const events = [];
-  const running = await startServer({ ...config, REDIS_URL: 'redis://127.0.0.1:6379' }, {
+  const previousTtl = app.locals.agentListCacheTtlSeconds;
+  t.after(() => { app.locals.agentListCacheTtlSeconds = previousTtl; });
+  const running = await startServer({ ...config, REDIS_URL: 'redis://127.0.0.1:6379', AGENT_LIST_CACHE_TTL_SECONDS: 120 }, {
     connect: async () => { events.push('mongo connect'); },
     disconnect: async () => { events.push('mongo close'); },
     redis: {
@@ -92,6 +94,7 @@ test('startup connects MongoDB then Redis, and repeated shutdown closes both onc
     },
   });
   t.after(() => running.shutdown());
+  assert.equal(app.locals.agentListCacheTtlSeconds, 120);
   assert.deepEqual(events, ['mongo connect', 'redis connect']);
   await Promise.all([running.shutdown(), running.shutdown()]);
   assert.deepEqual(events, ['mongo connect', 'redis connect', 'redis close', 'mongo close']);
