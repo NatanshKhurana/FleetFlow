@@ -4,6 +4,7 @@ import test from 'node:test';
 import app from '../src/app.js';
 import Agent from '../src/models/Agent.js';
 import { agentListCache, agentListCacheKey, createAgentListCache } from '../src/services/agentListCache.js';
+import { fakeRedis } from '../test-support/fakeRedis.js';
 
 function sampleAgent() {
   return new Agent({
@@ -187,31 +188,6 @@ test('find and count failures use the existing safe centralized 500 response', a
   }
   assert.doesNotMatch(JSON.stringify(log.mock.calls.map((call) => call.arguments)), /fake-private|stack/);
 });
-
-function fakeRedis(t, { readError = false, writeError = false } = {}) {
-  const entries = new Map();
-  let now = 0;
-  const client = {
-    withCommandOptions: t.mock.fn((options) => {
-      assert.deepEqual(options, { timeout: 1000 });
-      return client;
-    }),
-    get: t.mock.fn(async (key) => {
-      if (readError) throw new Error('fake-private-redis-read-details');
-      const entry = entries.get(key);
-      return entry && entry.expiresAt > now ? entry.value : null;
-    }),
-    set: t.mock.fn(async (key, value, options) => {
-      if (writeError) throw new Error('fake-private-redis-write-details');
-      assert.equal(options.expiration.type, 'EX');
-      entries.set(key, { value, expiresAt: now + options.expiration.value * 1000 });
-      return 'OK';
-    }),
-    advance(milliseconds) { now += milliseconds; },
-    prime(key, value) { entries.set(key, { value, expiresAt: Infinity }); },
-  };
-  return client;
-}
 
 test('a list miss stores data and pagination together; a hit skips both MongoDB queries', async (t) => {
   const redis = fakeRedis(t);

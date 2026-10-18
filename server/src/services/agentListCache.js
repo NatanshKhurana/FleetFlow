@@ -1,18 +1,13 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { getRedisClient } from '../config/redis.js';
+import { cachedAgentSchema } from '../validation/cachedAgentSchema.js';
 
 // Check cached JSON before returning it, including the public-field allowlist.
 const cachedResponseSchema = z.strictObject({
   success: z.literal(true),
   message: z.literal('Agents retrieved successfully'),
-  data: z.array(z.strictObject({
-    id: z.string().regex(/^[a-fA-F0-9]{24}$/),
-    agentId: z.string(), fullName: z.string(), phone: z.string(),
-    email: z.string(), serviceArea: z.string(),
-    status: z.enum(['active', 'inactive']),
-    createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
-  })),
+  data: z.array(cachedAgentSchema),
   pagination: z.strictObject({
     page: z.number().int().positive(), limit: z.number().int().min(1).max(100),
     total: z.number().int().nonnegative(), totalPages: z.number().int().nonnegative(),

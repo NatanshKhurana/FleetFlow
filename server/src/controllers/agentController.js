@@ -1,6 +1,7 @@
 import Agent from '../models/Agent.js';
 import { ApiError } from '../utils/ApiError.js';
 import { agentListCache } from '../services/agentListCache.js';
+import { agentDetailCache } from '../services/agentDetailCache.js';
 
 function publicAgent(agent) {
   // All agent endpoints expose the same fields, without Mongoose internals.
@@ -84,7 +85,11 @@ export async function listAgents(request, response, next) {
 
 export async function getAgentById(request, response, next) {
   try {
-    const agent = await Agent.findById(request.validated.params.id)
+    const id = request.validated.params.id;
+    const cached = await agentDetailCache.read(id);
+    if (cached) return response.status(200).json(cached);
+
+    const agent = await Agent.findById(id)
       .select('agentId fullName phone email serviceArea status createdAt updatedAt')
       .lean()
       .exec();
@@ -93,11 +98,14 @@ export async function getAgentById(request, response, next) {
       return next(new ApiError(404, 'Agent not found'));
     }
 
-    return response.status(200).json({
+    const result = {
       success: true,
       message: 'Agent retrieved successfully',
       data: publicAgent(agent),
-    });
+    };
+    // Reuse the list TTL setting; only a successfully found agent reaches this write.
+    await agentDetailCache.write(id, result, request.app.locals.agentListCacheTtlSeconds);
+    return response.status(200).json(result);
   } catch (error) {
     return next(error);
   }
