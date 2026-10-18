@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1 and 2 are **COMPLETE** after verification; Steps 3-30 remain **PENDING**. Step 1 was committed as `0f170dc`. Step 2 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-3 are **COMPLETE** after verification; Steps 4-30 remain **PENDING**. Steps 1 and 2 were committed as `0f170dc` and `e5ad3ec`. Step 3 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -23,7 +23,7 @@ Acceptance criteria: Server starts successfully and the health endpoint returns 
 Commit: feat: set up Express server and health check
 
 ### Step 3 — Configure environment variables
-Status: PENDING
+Status: COMPLETE
 
 Objective: Add environment variable loading, validation, and secret protection.
 
