@@ -10,8 +10,8 @@ let App;
 let Header;
 
 before(async () => {
-  // Compile the actual JSX using the installed Vite plugin, without local .env files.
-  vite = await createServer({ envDir: false, server: { middlewareMode: true, watch: null } });
+  // Compile actual JSX with automatic browser env injection and dev sockets disabled.
+  vite = await createServer({ envDir: false, server: { middlewareMode: true, watch: null, hmr: false, ws: false } });
   App = (await vite.ssrLoadModule('/src/App.jsx')).default;
   Header = (await vite.ssrLoadModule('/src/components/layout/Header.jsx')).default;
 });
@@ -22,12 +22,12 @@ function render(component, props = {}, path = '/') {
   return renderToString(createElement(MemoryRouter, { initialEntries: [path] }, createElement(component, props)));
 }
 
-test('overview renders the shared shell, welcome panel, and skip-to-main target', () => {
+test('overview renders the shared shell, initial loading state, and skip-to-main target', () => {
   const html = render(App);
   assert.equal((html.match(/<main\b/g) || []).length, 1);
   assert.equal((html.match(/<h1\b/g) || []).length, 1);
   assert.match(html, /<h1[^>]*>Overview<\/h1>/);
-  assert.match(html, /Welcome to FleetFlow/);
+  assert.match(html, /Loading your overview/);
   assert.match(html, /href="#main-content"/);
   assert.match(html, /<main id="main-content" tabindex="-1"/);
   assert.match(html, /aria-current="page"/);

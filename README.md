@@ -4,7 +4,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The backend supports creating, listing, retrieving, partially updating, and deleting agents.** List requests support pagination/search/filters; detail, update, and delete requests use the public database ID. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. Frontend workflows have not been implemented yet.
+**The backend supports creating, listing, retrieving, partially updating, and deleting agents.** List requests support pagination/search/filters; detail, update, and delete requests use the public database ID. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. The frontend overview now reads real agent totals and recent registrations; agent management screens remain planned.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
@@ -24,11 +24,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 16 is COMPLETE and committed as `b8f8ec9` (`fix: invalidate stale agent cache entries`), with status documentation committed as `95aeef9`. Its verification results remain recorded below.
 - Step 17 is COMPLETE and committed as `f4d9846` (`test: verify Redis caching and consistency`). Live cache verification has not been run.
 - Step 18 is COMPLETE and committed as `e170c33` (`feat: set up React dashboard application`).
-- Step 19 is COMPLETE and uncommitted. Build and five render tests passed; the project owner confirmed manual browser viewport and keyboard verification passed.
-- Steps 20-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 19 is COMPLETE and committed as `f90d653` (`feat: build responsive admin dashboard layout`). The project owner confirmed manual browser viewport and keyboard verification passed.
+- Step 20 is COMPLETE after 19 frontend tests, production build, syntax checks, and read-only live overview verification through the Vite proxy passed. Changes remain uncommitted for review.
+- Steps 21-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` contains a responsive dashboard shell with shared branding, sidebar/header navigation, and a minimal welcome panel. Agent pages and real dashboard metrics remain planned. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
+- `client/` contains a responsive dashboard shell and an API-backed overview with total/active/inactive counts, recent registrations, loading feedback, safe errors/retry, and an empty state. Agent management pages remain planned. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
@@ -46,11 +47,11 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents, listing with search/filters, fetching a single agent, partial updates, and deletion are implemented with request validation and safe error responses. List/detail caching and mutation invalidation are implemented; dashboard screens remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active/inactive agents plus recent registrations. Backend CRUD, validation, caching/invalidation, and the API-backed dashboard overview are implemented. Agent management screens remain planned.
 
 ## High-level architecture
 
-The React application in `client/` will send HTTP requests to the Express API in `server/` using Axios. The server will validate input with Zod and use Mongoose to read and write MongoDB Atlas data. Redis will cache agent list and detail responses, with expiry and invalidation after successful mutations. Database credentials and other server secrets must stay on the server.
+The React overview in `client/` sends HTTP requests to the Express API in `server/` using Axios. The server validates input with Zod and uses Mongoose to read and write MongoDB Atlas data. Redis caches agent list and detail responses, with expiry and invalidation after successful mutations. Database credentials and other server secrets stay on the server.
 
 ```text
 Browser: React + Vite + Tailwind CSS + React Router
@@ -82,9 +83,12 @@ FleetFlow/
 |       |   |-- Sidebar.jsx   Desktop sidebar and shared navigation
 |       |   |-- Header.jsx    Header and mobile navigation disclosure
 |       |   `-- DashboardLayout.jsx  Shell, menu state, and content outlet
-|       |-- pages/OverviewPage.jsx   Minimal welcome panel
-|       `-- lib/api.js        Configured Axios client; no API calls yet
-|   `-- test/layout.test.js   Node-based React render and accessibility contracts
+|       |-- components/overview/OverviewContent.jsx  Summary cards and request states
+|       |-- pages/OverviewPage.jsx   Overview request lifecycle and page
+|       |-- services/overviewService.js  Paginated counts and recent-agent mapping
+|       |-- state/overviewResource.js  Load/retry/cancel state shared with tests
+|       `-- lib/api.js        Shared Axios client
+|   `-- test/                Layout, overview state/data/render, and Vite proxy tests
 |-- server/
 |   |-- .env.example         Safe backend configuration template
 |   |-- package.json         Server dependencies and commands
@@ -162,39 +166,53 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 npm run dev
 ```
 
-Open the local URL printed by Vite, normally `http://localhost:5173`. If that port is occupied, Vite may select the next available port. The FleetFlow shell works without starting MongoDB, Redis, or the backend. Stop Vite with Ctrl+C. For a fresh checkout, `npm ci` installs the exact versions in `client/package-lock.json`.
+Open the local URL printed by Vite, normally `http://localhost:5173`. If that port is occupied, Vite may select the next available port. The shell renders without the backend, but overview data requires a reachable Express API and MongoDB. Redis remains optional. Stop Vite with Ctrl+C. For a fresh checkout, `npm ci` installs the exact versions in `client/package-lock.json`.
+
+For the local overview setup, start the backend in a separate PowerShell terminal from the repository root:
+
+```powershell
+cd server
+npm start
+```
+
+The existing backend's normal local configuration uses port 5000, and the Vite proxy now defaults to that same port. No PORT override is needed. Use a fresh terminal without the earlier process-only PORT override, or remove that stale override with `Remove-Item Env:PORT -ErrorAction SilentlyContinue` before starting the backend. Backend code has no hardcoded port: `config/env.js` validates PORT and `startup.js` listens on that value. `GET /api/health` and `GET /api/agents` are the actual mounted paths. To use a backend running on a different port, set `API_PROXY_TARGET` in `client/.env` to its public origin and restart Vite; no backend file changes are needed.
 
 | Command inside `client/` | Purpose |
 | --- | --- |
 | `npm run dev` | Start Vite with development updates when files change |
 | `npm run build` | Compile the frontend into `client/dist/` for production |
 | `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
-| `npm test` | Run five frontend render-contract tests using Node's built-in test runner and installed Vite/React packages |
+| `npm test` | Run 19 layout, overview request/state/render, Axios HTTP, and Vite proxy tests using Node's built-in test runner |
 
-`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs. The home welcome panel and unknown-page fallback share the dashboard shell. Agent screens and real metrics remain planned.
+`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs. The overview and unknown-page fallback share the dashboard shell. Agent management screens remain planned.
 
 ### Frontend configuration
 
-`client/.env.example` documents the safe local value:
+`client/.env.example` documents the safe local values:
 
 ```dotenv
-VITE_API_BASE_URL=http://localhost:5000/api
+VITE_API_BASE_URL=/api
+API_PROXY_TARGET=http://localhost:5000
 ```
 
-`src/lib/api.js` uses `axios.create()` to export one reusable HTTP client with this base URL and a 10-second request timeout. It reads `import.meta.env.VITE_API_BASE_URL`; missing or blank values fall back to the same local URL. A future relative request such as `/agents` will target `/api/agents`. Change the port to match your privately configured backend PORT if it differs from the example, then restart Vite. Build-time changes require a fresh production build.
+If an existing `client/.env` still contains the earlier `API_PROXY_TARGET=http://localhost:7777`, change that public target to `http://localhost:5000` or remove it to use the default, then restart Vite.
+
+`src/lib/api.js` uses `axios.create()` to export one reusable HTTP client with a 10-second timeout. It reads `import.meta.env.VITE_API_BASE_URL`; missing/blank values now fall back to `/api`. Requests to `/agents` target `/api/agents` on the frontend origin. `vite.config.js` forwards `/api` unchanged to `API_PROXY_TARGET` during development and preview, defaulting to `http://localhost:5000`. The public proxy target is loaded from client configuration and is not a `VITE_*` browser variable. This follows [Vite's proxy configuration](https://vite.dev/config/server-options#server-proxy).
+
+If you copied the older client example, replace its `VITE_API_BASE_URL=http://localhost:5000/api` with `/api` and set the proxy target to the running backend's origin. Absolute API base URLs bypass Vite's proxy and require server-side CORS permission; the existing Express app does not enable cross-origin access. Production hosting must proxy `/api` to Express or use an explicitly configured API origin with appropriate CORS. The development/preview proxy is not included in `dist/`. Restart Vite after local environment changes; rebuild after changes to browser environment values.
 
 Vite loads client environment files automatically. **Every `VITE_*` value is public browser configuration** and can be included in built assets. Never copy server database/Redis URLs, passwords, or secret tokens into client environment files. The client does not load the private backend environment file. See [Vite environment documentation](https://vite.dev/guide/env-and-mode).
 
-No API requests are made by the shell, and no backend CORS or development proxy changes are included. When API integration is implemented later, cross-origin requests from the Vite port to Express will need an appropriate CORS or proxy setup. A frontend build does not verify backend connectivity.
+Only the overview makes API requests in this step. No backend CORS changes or new endpoints were needed. A frontend build alone does not verify backend connectivity; the separate live read-only check is recorded in Step 20 verification below.
 
 ### Frontend files and dependencies
 
 - `index.html` supplies the page title and the `root` element where React mounts.
 - `src/main.jsx` mounts React with `createRoot()`. `StrictMode` helps detect development issues; `BrowserRouter` enables navigation without full page reloads.
-- `src/App.jsx` nests the home welcome panel and unknown-page route inside `DashboardLayout`, so both keep the same shell. `pages/OverviewPage.jsx` contains only welcome text and decorative Lucide icons.
+- `src/App.jsx` nests the overview and unknown-page route inside `DashboardLayout`. `pages/OverviewPage.jsx` subscribes to the request resource and loads/cancels it through React effects. `components/overview/OverviewContent.jsx` renders the summary cards, recent-registration list, loading, empty, and retry/error states.
 - `components/layout/Brand.jsx` shares the FleetFlow logo and subtitle. `Sidebar.jsx` exports the shared navigation and desktop sidebar. `Header.jsx` uses that same navigation for a mobile disclosure. `DashboardLayout.jsx` owns the menu state, responsive reset, Escape handler, skip link, page title, and React Router `Outlet`, which displays the selected page.
 - `src/index.css` imports Tailwind and defines the system font, visible keyboard focus outlines, and wrapping for long text. `vite.config.js` registers the React and Tailwind plugins. This follows the officially supported [Tailwind Vite setup](https://tailwindcss.com/docs/installation/using-vite); no legacy `tailwindcss init`, separate PostCSS configuration, or Autoprefixer package is needed.
-- `src/lib/api.js` configures Axios for later reuse. No authentication, interceptors, or agent service functions have been added.
+- `src/lib/api.js` is the existing shared Axios client. `services/overviewService.js` makes the three count/recent requests and maps only the public fields used by the overview. `state/overviewResource.js` owns loading/success/error transitions, cancellation, and retry. React uses `useSyncExternalStore` to subscribe to the same state logic exercised directly by Node tests. No authentication or interceptors were added.
 - `package.json` declares ES modules, Node requirements, dependencies, and scripts. `package-lock.json` records the exact installed dependency tree.
 - `client/.gitignore` complements the root ignore rules for dependencies, build output, tool caches, logs, editor settings, and local environment files. The safe `.env.example` stays trackable.
 
@@ -1145,8 +1163,50 @@ From the root, `git diff --check` passed. No dependencies were installed, lockfi
 
 The project owner's subsequent manual browser confirmation completes the viewport and keyboard verification recorded above. Step 19 is COMPLETE. Steps 20-30 remain pending.
 
-Suggested Step 19 commit message after review:
+## Step 20 overview data and counting
+
+The overview uses only the existing `GET /api/agents` endpoint. Every load or retry makes three concurrent Axios requests:
+
+| Query | Overview use |
+| --- | --- |
+| `?page=1&limit=5` | `pagination.total` is the total agent count; `data` provides up to five recent registrations |
+| `?page=1&limit=1&status=active` | `pagination.total` is the count of all matching active agents |
+| `?page=1&limit=1&status=inactive` | `pagination.total` is the count of all matching inactive agents |
+
+The model and request schema support exactly `active` and `inactive`. Counts are never calculated from the current page's array length or from fabricated sample records. Request volume stays at three GETs and at most seven returned records per load; it does not grow with the number of agents. The backend already sorts by `createdAt` descending with `_id` descending as a deterministic tie-breaker. The recent-registration list is not the future All Agents table: it has no search, filters, links, CRUD actions, or forms. Dates display in UTC for consistent rendering, and contact email/phone values are not shown.
+
+Loading shows dashes and a progress message rather than fake zero counts. A successful empty response displays genuine zero totals and No agents yet feedback. Any failed request, invalid response, or detectable count mismatch hides the entire metrics result and offers Try again. Raw errors, server messages, credentials, and connection details are never rendered. Retry re-enters loading and replaces the previous request. Cancellation on unmount or a newer load prevents stale completion from replacing newer data, including React StrictMode's development cleanup/reload cycle. Axios receives the same AbortController signal for all three requests; see its [cancellation documentation](https://axios-http.com/docs/cancellation).
+
+These three requests are not a transactional snapshot. The service rejects results when active plus inactive differs from total, or when the first page's length does not match its total, but those checks cannot detect every concurrent-change race. Existing Redis caching can also return results up to the configured TTL old (default 60 seconds) when invalidation is unavailable or writes bypass the API. Successful API mutations retain the existing generation invalidation behavior. Reloading/retrying does not bypass Redis's TTL, and no automatic polling is added. The overview describes a snapshot, not real-time delivery activity.
+
+If the overview cannot load, verify the backend's printed startup port, check its `/api/health` endpoint, and align `API_PROXY_TARGET` with that origin. Keep `VITE_API_BASE_URL=/api` for the local proxy; old absolute base URLs bypass it. Restart Vite after changing client configuration. If records changed while the requests ran, retry after the data/cache settles. Do not put backend secrets into client configuration to diagnose failures.
+
+## Step 20 verification results
+
+Commands run inside `client/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `npm test` | Initial run: 16 passed, 1 failed because a test assumed JavaScript sorts null before strings. The assertion now compares a Set of query statuses. After adding two proxy checks, final run: all 19 passed, 0 failed, 0 skipped. |
+| `npm run build` | Passed with Vite 8.3.4; final build generated ignored HTML/CSS/JS assets without errors |
+| `node --check src/services/overviewService.js` | Passed |
+| `node --check src/state/overviewResource.js` | Passed |
+| `node --check src/lib/api.js` | Passed |
+| `node --check vite.config.js` | Passed |
+| `node --check test/overview.test.js` | Passed |
+| `node --check test/proxy.test.js` | Passed |
+| `node --check test/layout.test.js` | Passed |
+
+The 19 tests include five shell regressions, twelve overview tests, and two proxy tests. They cover full filtered totals larger than a returned page, safe field mapping, malformed/inconsistent responses, genuine empty data, loading, failed requests, error/retry recovery, safe error output, subscription cleanup, cancellation and late completions, StrictMode-style restart, recent-agent rendering, and the existing Axios instance reading a controlled local HTTP fixture. Proxy tests verify the 5000 default and actual request forwarding to an isolated local HTTP server through an API_PROXY_TARGET override. These tests need neither Atlas nor Redis. Parallel test Vite instances now explicitly disable `server.ws` as well as HMR, resolving a test-only websocket port warning without changing development behavior.
+
+Separate **live read-only verification** was performed. From `server/`, initial `npm start` connected MongoDB/Redis and printed port 5000; it was stopped. `$env:PORT = '7777'; npm start` then connected both services and listened on 7777. A PowerShell here-string piped to `node --input-type=module` inside `client/` checked health HTTP 200, ran the actual overview service's three Axios queries through an ephemeral Vite proxy to the real backend, validated totals/recent responses, and rendered the successful overview result. It passed. No agent records or private configuration were printed, and no database mutations were made. The backend loaded its private configuration through normal startup; its environment file was not inspected, copied, or modified. All verification servers were stopped afterward.
+
+`git diff --check` from the repository root passed. No dependencies, lockfiles, backend code, CRUD UI, or authentication changed, and nothing was staged or committed. Backend tests were not rerun because backend source is unchanged. Browser-mounted effects, real clicks, and the new page's visual appearance were not inspected in a connected browser; request/retry logic and rendered states were tested directly using the existing Node/Vite/React setup. Step 20 acceptance criteria passed using automated coverage and the live API read-through check; Steps 21-30 remain pending.
+
+Port-alignment follow-up: the development/preview proxy default and client example now use port 5000, matching normal backend startup. API_PROXY_TARGET remains configurable, and its override is exercised by the isolated HTTP forwarding test. After this correction, `npm test` passed all 19 tests, `npm run build` passed, and root `git diff --check` passed. No backend startup or live-service check was repeated for this follow-up, so `server/.env` was not read, printed, or modified. Step 20 remains COMPLETE; Steps 21-30 remain PENDING.
+
+Suggested Step 20 commit message after review:
 
 ```text
-feat: build responsive admin dashboard layout
+feat: add agent dashboard overview
 ```

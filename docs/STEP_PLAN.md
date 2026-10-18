@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-19 are **COMPLETE** and Steps 20-30 remain **PENDING**. Step 18 is committed as `e170c33`; earlier steps retain their existing commits. Step 19's responsive shell is implemented and the production build and five frontend render tests pass. The project owner confirmed that manual browser verification passed at 320px, 390px, 768px, 1024px, and 1440px, including mobile menu open/close, Escape closing the menu and returning focus, Tab navigation, resizing across 1024px, and no horizontal overflow. Changes are uncommitted for review. Earlier live Redis PING/PONG verifies connectivity only; live cache integration remains unverified. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-20 are **COMPLETE** and Steps 21-30 remain **PENDING**. Step 19 is committed as `f90d653`; earlier steps retain their existing commits. Step 20 passed all 19 frontend tests, production build, syntax checks, and live read-only API verification through the Vite proxy. Earlier live verification used a process-only port 7777 override; the local proxy default is now aligned with normal backend startup at port 5000, with API_PROXY_TARGET still configurable. All 19 frontend tests and the production build passed again after alignment; no private environment file was read or modified during that follow-up. Full pagination metadata supplies total/active/inactive counts and the existing newest-first list supplies recent registrations. Three cached requests are not an atomic real-time snapshot; limitations are documented in README.md. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -182,7 +182,7 @@ Acceptance criteria: Consistent dashboard layout works on desktop, tablet, and m
 Commit: feat: build responsive admin dashboard layout
 
 ### Step 20 — Build dashboard overview
-Status: PENDING
+Status: COMPLETE
 
 Objective: Show total agents, active agents, inactive agents, and recent agents.
 
