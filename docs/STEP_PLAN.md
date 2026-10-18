@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-4 are **COMPLETE** after verification; Steps 5-30 remain **PENDING**. Steps 1-3 were committed as `0f170dc`, `e5ad3ec`, and `ee4870c`. Step 4 automated checks and a real Atlas connection, ping, and health response passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-5 are **COMPLETE** after verification; Steps 6-30 remain **PENDING**. Steps 1-4 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, and `9e814f5`. Step 5 model checks and all 24 automated tests passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -41,7 +41,7 @@ Acceptance criteria: Connection works with valid credentials and failures are re
 Commit: feat: connect application to MongoDB
 
 ### Step 5 — Create Agent model
-Status: PENDING
+Status: COMPLETE
 
 Objective: Define agentId, fullName, phone, email, serviceArea, status, createdAt, and updatedAt.
 

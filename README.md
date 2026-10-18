@@ -4,16 +4,17 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The Express backend connects to MongoDB Atlas before accepting HTTP requests.** Delivery-agent functionality and the frontend have not been implemented yet.
+**The Express backend and Delivery Agent model are implemented.** The backend connects to MongoDB Atlas before accepting HTTP requests. Agent CRUD workflows and the frontend have not been implemented yet.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
 - Step 3 is COMPLETE and committed locally as `ee4870c` (`chore: configure environment variables`).
-- Step 4 is COMPLETE after automated checks and a real Atlas connection, database ping, and health response were verified. Its changes await review and remain uncommitted.
-- Steps 5-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 4 is COMPLETE and committed locally as `9e814f5` (`feat: connect application to MongoDB`).
+- Step 5 is COMPLETE after model validation and regression tests passed. Its changes await review and remain uncommitted.
+- Steps 6-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes a health endpoint and consistent JSON error responses.
 - Express, dotenv, Zod, and Mongoose are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. There are no Agent models, CRUD endpoints, authentication, or Redis connections.
+- `client/` remains empty. The Agent model is defined and exported for later CRUD steps; there are no CRUD endpoints, authentication, or Redis connections.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional until Step 13.
 
 ## Planned technology stack
@@ -31,7 +32,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Agent records will include agentId, fullName, phone, email, serviceArea, status, createdAt, and updatedAt. Validation, clear error states, responsive forms and tables, and Redis caching with expiry and invalidation will support these workflows. All of these capabilities are planned and have not been implemented.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. The Agent schema now defines agentId, fullName, phone, email, serviceArea, status, createdAt, and updatedAt. Request validation, clear error states, responsive forms and tables, and Redis caching with expiry and invalidation will support the future workflows. Those workflows remain planned.
 
 ## High-level architecture
 
@@ -60,12 +61,15 @@ FleetFlow/
 |   |   |-- app.js           Express routes and middleware
 |   |   |-- server.js        Starts the HTTP server
 |   |   |-- startup.js       Connects the database before listening; owns cleanup
-|   |   `-- config/
-|   |       |-- env.js       Loads and validates backend configuration
-|   |       `-- db.js        Mongoose connection and safe lifecycle messages
+|   |   |-- config/
+|   |   |   |-- env.js       Loads and validates backend configuration
+|   |   |   `-- db.js        Mongoose connection and safe lifecycle messages
+|   |   `-- models/
+|   |       `-- Agent.js     Delivery Agent schema and exported model
 |   `-- test/
 |       |-- env.test.js      Configuration regression tests
 |       |-- db.test.js       Mocked database connection tests
+|       |-- agent.test.js    Agent schema validation and index definitions
 |       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
 |-- docs/
 |   |-- DEVELOPMENT_RULES.md Permanent development rules
@@ -99,7 +103,7 @@ Direct dependencies are Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, and Mongoose 9.
 
 ## MongoDB Atlas prerequisites and startup
 
-MongoDB is FleetFlow's persistent database: it will retain agent records between server restarts. Redis will be introduced later for caching; it is not required or connected now. No Agent schema, collection creation, or CRUD operation is implemented in this step.
+MongoDB is FleetFlow's persistent database: it will retain agent records between server restarts. Redis will be introduced later for caching; it is not required or connected now. The Agent schema is defined below; it is not imported into startup yet. Step 5 performs no live database writes or index creation and adds no CRUD operations.
 
 Before starting, have an active Atlas cluster, a database user with access to the intended FleetFlow database, and your current machine's IP permitted in Atlas Network Access. A database user is separate from an Atlas website account. Obtain the Node.js driver connection URI privately from Atlas, fill in the database user's credentials and application database name locally, and save it as `MONGODB_URI` in `server/.env`. Encode special characters in credentials as required by the URI format. Do not paste the URI into chat, logs, documentation, or Git. Existing `.env` files must be preserved; the guarded PowerShell copy above only creates one when absent.
 
@@ -118,6 +122,29 @@ If connection fails, startup logs safe instructions, closes the database client,
 Ctrl+C (SIGINT) or SIGTERM starts shutdown: stop accepting HTTP requests, let active requests finish, then disconnect Mongoose. Repeated cleanup requests share one operation. Shutdown during database startup cancels HTTP startup. A ten-second deadline forces an unsuccessful exit if cleanup hangs; cleanup failures also exit unsuccessfully.
 
 For connection trouble, check the private database username/password, database permissions, current IP access-list entry, cluster availability, DNS resolution, and firewall/network access to Atlas. Restart after fixing local configuration. Do not disable TLS checks or expose credentials to diagnose errors. The [Atlas connection troubleshooting guide](https://www.mongodb.com/docs/atlas/troubleshoot-connection/) covers authentication, IP access, and network problems.
+
+## Delivery Agent model
+
+`server/src/models/Agent.js` defines the document structure with `mongoose.Schema()` and exports the `Agent` model as its default export. A schema describes what a record may contain; a model lets later code create and work with records using that schema. Importing this module does not load `.env` or call a database connection function.
+
+| Field | Purpose and rules |
+| --- | --- |
+| `agentId` | Business identifier for the agent; required trimmed string with a unique MongoDB index. Values remain case-sensitive. This step does not generate IDs. It is separate from MongoDB's built-in `_id`. |
+| `fullName` | Agent's display name; required trimmed string. |
+| `phone` | Contact number; required trimmed string. Internal formatting is preserved, including a leading `+`. |
+| `email` | Contact email; required string, trimmed and converted to lowercase. |
+| `serviceArea` | Area served by the agent; required trimmed string. |
+| `status` | Trimmed string allowing only `active` or `inactive`. Defaults to `active` when omitted; null and empty values are rejected. |
+| `createdAt` | Date managed by Mongoose when the document is first persisted. |
+| `updatedAt` | Date managed by Mongoose when the document is saved or updated through supported Mongoose operations. |
+
+`timestamps: true` enables the two date fields. Merely constructing or validating an unsaved document does not populate timestamps. The schema tests check timestamp configuration without saving to a database.
+
+Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen as values are assigned, before validation or persistence. No international phone canonicalization or email-format validator is added in this step; these fields currently enforce required non-empty text. Request validation remains scheduled for Step 6.
+
+Mongoose validation catches missing required fields, blank required text after trimming, and unsupported status values before a normal save. This helps keep records consistent; it does not replace request validation. `unique: true` declares a MongoDB index rather than a Mongoose validator: `validate()` cannot detect duplicate stored IDs. Once the unique index exists, MongoDB rejects conflicting writes with a duplicate-key error. Future CRUD setup must ensure that index is ready and handle those errors. This step verifies the index definition only, without creating it in Atlas. See the [Mongoose validation guide](https://mongoosejs.com/docs/validation.html).
+
+`server/test/agent.test.js` builds sample documents and calls `validate()` in memory. `validAgent()` supplies readable test data; `assert.rejects()` checks that invalid documents fail. The tests also inspect timestamp and index definitions. They import neither environment configuration nor startup code and require no live database or credentials.
 
 ## Environment configuration
 
@@ -229,8 +256,21 @@ Actual checks run on October 18, 2026. Default `npm test` uses fake configuratio
 
 The configured Atlas URI and credentials were never printed. All verification servers and clients were closed afterward. Step 4 acceptance criteria passed; no known blocker remains. Existing JSON 400 and 413 responses are also covered by the startup tests; the 500 response branch was not deliberately triggered.
 
-After review and explicit approval, the suggested Step 4 commit message is:
+## Step 5 verification
+
+Actual checks run on October 18, 2026, inside `server/`:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/agent.test.js` | All 8 Agent tests passed. The first run warned about deprecated `validateSync()`; tests were changed to async `validate()` and rerun successfully without those warnings. |
+| `node --check src/models/Agent.js` | Passed |
+| `node --check test/agent.test.js` | Passed |
+| `npm test` | All 24 tests passed, including the 8 new model tests and 16 existing configuration, connection, and startup tests |
+
+Agent tests cover valid active/inactive documents, each missing required field, empty/whitespace/null required values, invalid status, default status, trimming, lowercase email, timestamp configuration, and the intended unique index. No dependencies were added. No live database was used, no secrets were read from `server/.env`, and no indexes or records were created. Database duplicate enforcement and timestamp persistence were not integration-tested; the schema definitions are verified. Step 5 acceptance criteria passed; no known blocker remains.
+
+After review, the suggested Step 5 commit message for you to execute is:
 
 ```text
-feat: connect application to MongoDB
+feat: define delivery agent data model
 ```
