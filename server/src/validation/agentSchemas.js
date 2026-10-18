@@ -16,6 +16,22 @@ export const agentParamsSchema = z.strictObject({
   id: z.string().regex(/^[a-fA-F0-9]{24}$/),
 });
 
+// Reuse create rules, but keep identifiers and timestamps out of editable data.
+export const updateAgentSchema = createAgentSchema.pick({
+  fullName: true,
+  phone: true,
+  email: true,
+  serviceArea: true,
+  status: true,
+}).partial()
+  // Optional fields must never overwrite stored values with undefined.
+  .transform((data) => Object.fromEntries(
+    Object.entries(data).filter(([, value]) => value !== undefined),
+  ))
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'Provide at least one editable field.',
+  });
+
 // Query values must be single decimal strings, not arrays or coercible objects.
 const positiveQueryInteger = z.string().trim().regex(/^[1-9]\d*$/)
   .transform(Number).pipe(z.number().int().positive());

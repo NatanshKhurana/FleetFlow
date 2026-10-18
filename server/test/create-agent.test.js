@@ -140,12 +140,12 @@ test('unexpected persistence errors use the existing safe 500 response and loggi
   assert.doesNotMatch(JSON.stringify(log.mock.calls.map((call) => call.arguments)), /fake-private|stack/);
 });
 
-test('health and unknown routes work; update and delete remain unimplemented', async (t) => {
+test('health and unknown routes work; delete remains unimplemented', async (t) => {
   const { base, create } = await startTestServer(t);
   const health = await fetch(base + '/api/health', { signal: AbortSignal.timeout(5000) });
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { success: true, message: 'FleetFlow API is running' });
-  for (const [method, path] of [['GET', '/missing'], ['GET', '/api/agents/example/extra'], ['PATCH', '/api/agents/example'], ['DELETE', '/api/agents/example']]) {
+  for (const [method, path] of [['GET', '/missing'], ['GET', '/api/agents/example/extra'], ['PATCH', '/api/agents/example/extra'], ['DELETE', '/api/agents/example']]) {
     const response = await fetch(base + path, { method, signal: AbortSignal.timeout(5000) });
     assert.equal(response.status, 404);
     assert.deepEqual(await response.json(), { success: false, message: 'Route not found' });

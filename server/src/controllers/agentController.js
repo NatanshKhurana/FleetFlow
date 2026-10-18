@@ -96,3 +96,32 @@ export async function getAgentById(request, response, next) {
     return next(error);
   }
 }
+
+export async function updateAgent(request, response, next) {
+  try {
+    // $set changes only supplied fields; Mongoose manages updatedAt itself.
+    const agent = await Agent.findByIdAndUpdate(
+      request.validated.params.id,
+      { $set: request.validated.body },
+      { returnDocument: 'after', runValidators: true, upsert: false },
+    )
+      .select('agentId fullName phone email serviceArea status createdAt updatedAt')
+      .lean()
+      .exec();
+
+    if (!agent) {
+      return next(new ApiError(404, 'Agent not found'));
+    }
+
+    return response.status(200).json({
+      success: true,
+      message: 'Agent updated successfully',
+      data: publicAgent(agent),
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return next(new ApiError(409, 'Agent update conflicts with an existing record'));
+    }
+    return next(error);
+  }
+}

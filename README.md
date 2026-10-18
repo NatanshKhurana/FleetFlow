@@ -4,7 +4,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The backend supports creating agents, listing them with pagination/search/filters, and retrieving one agent by its public database ID.** The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. Update, delete, and frontend workflows have not been implemented yet.
+**The backend supports creating, listing, retrieving, and partially updating agents.** List requests support pagination/search/filters; detail and update requests use the public database ID. The backend connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. Delete and frontend workflows have not been implemented yet.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
@@ -14,11 +14,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 6 is COMPLETE and committed locally as `772929d` (`feat: add request validation and API errors`).
 - Step 7 is COMPLETE and committed locally as `d516a14` (`feat: add create agent API`).
 - Step 8 is COMPLETE and committed locally as `e50b52d` (`feat: add paginated agent list API`).
-- Step 9 is COMPLETE after single-agent checks and all 54 automated tests passed. Its changes await review and remain uncommitted.
-- Steps 10-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
-- The server exposes health, create-agent, list-agent, and single-agent GET endpoints with consistent JSON error responses.
+- Step 9 is COMPLETE and committed locally as `31671be` (`feat: add get agent by ID API`).
+- Step 10 is COMPLETE after all 10 update tests and all 64 server tests passed. Its changes remain uncommitted for review.
+- Steps 11-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- The server exposes health, create-agent, list-agent, single-agent GET, and PATCH endpoints with consistent JSON error responses.
 - Express, dotenv, Zod, and Mongoose are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. Create, list, and single-agent read operations are implemented; there is no authentication or Redis connection.
+- `client/` remains empty. Create, list, single-agent read, and partial updates are implemented; there is no authentication or Redis connection.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional until Step 13.
 
 ## Planned technology stack
@@ -36,7 +37,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents, listing with search/filters, and fetching a single agent are implemented with request validation and safe error responses. Other workflows, dashboard screens, and Redis caching remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents, listing with search/filters, fetching a single agent, and partial updates are implemented with request validation and safe error responses. Deletion, dashboard screens, and Redis caching remain planned.
 
 ## High-level architecture
 
@@ -66,11 +67,11 @@ FleetFlow/
 |   |   |-- server.js        Starts the HTTP server
 |   |   |-- startup.js       Connects the database before listening; owns cleanup
 |   |   |-- routes/
-|   |   |   `-- agentRoutes.js       Create/list/detail routes and validation
+|   |   |   `-- agentRoutes.js       Create/list/detail/update routes and validation
 |   |   |-- controllers/
-|   |   |   `-- agentController.js   Creates/lists/fetches agents with public fields
+|   |   |   `-- agentController.js   Creates/lists/fetches/updates public agent data
 |   |   |-- validation/
-|   |   |   `-- agentSchemas.js     Create-body, list-query, and ID-param schemas
+|   |   |   `-- agentSchemas.js     Create/update bodies, list query, and ID params
 |   |   |-- config/
 |   |   |   |-- env.js       Loads and validates backend configuration
 |   |   |   `-- db.js        Mongoose connection and safe lifecycle messages
@@ -88,6 +89,7 @@ FleetFlow/
 |       |-- create-agent.test.js    Mocked create-agent endpoint tests
 |       |-- list-agents.test.js     Mocked list query and pagination tests
 |       |-- get-agent.test.js       Mocked single-agent lookup tests
+|       |-- update-agent.test.js    Partial updates and Mongoose query middleware
 |       |-- request-errors.test.js  Request middleware and safe error responses
 |       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
 |   `-- scripts/
@@ -193,9 +195,9 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/src/config/env.js` loads the file, then uses a Zod schema to describe allowed configuration. `safeParse()` returns validated data or validation issues. The port schema checks decimal text, converts it with `Number`, and enforces the TCP range. MongoDB URI syntax is required and checked by constructing a driver client without opening it. Optional Redis blanks normalize to `undefined`. Invalid configuration throws a readable error before the server can listen. The module exports only the validated `env` object.
 - `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
 - `server/src/app.js` creates and exports the Express application without opening a network port. Middleware runs in order: `express.json()`, health, the `/api/agents` router, the unchanged JSON 404 fallback, and the existing `errorHandler` last.
-- `server/src/routes/agentRoutes.js` defines `POST /`, `GET /`, and `GET /:id`, mounted under `/api/agents`. All use the existing `validateRequest()` before their controller: `body` for create, `query` for list, and `params` for detail.
-- `server/src/validation/agentSchemas.js` retains create/list validation and adds `agentParamsSchema`, which requires `id` to be exactly 24 hexadecimal characters. It does not reinterpret business identifiers or trim invalid ID whitespace.
-- `server/src/controllers/agentController.js` exports `createAgent()`, `listAgents()`, and `getAgentById()`. Create/list behavior is preserved. Detail uses the validated ID in one targeted `Agent.findById()` query, selects public fields, and uses `lean()` for a plain record. A missing result becomes `ApiError(404, 'Agent not found')`; other failures go to the existing central handler. All three endpoints reuse the existing `publicAgent()` formatter.
+- `server/src/routes/agentRoutes.js` defines `POST /`, `GET /`, `GET /:id`, and `PATCH /:id`, mounted under `/api/agents`. All use the existing `validateRequest()` before their controller: `body` for create, `query` for list, `params` for detail, and both `params` and `body` for update.
+- `server/src/validation/agentSchemas.js` defines create/list validation and `agentParamsSchema`, which requires exactly 24 hexadecimal characters. `updateAgentSchema` picks only editable fields from the create schema, makes them optional, removes undefined values, and requires at least one supplied value. It preserves strict rejection of unknown keys and existing normalization without adding defaults.
+- `server/src/controllers/agentController.js` exports `createAgent()`, `listAgents()`, `getAgentById()`, and `updateAgent()`. Detail uses one targeted `Agent.findById()` query. Update uses `findByIdAndUpdate()` with `$set` for supplied fields, `runValidators: true` for model validation, `returnDocument: 'after'` for the updated record, and `upsert: false` to prevent accidental insertion. Mongoose manages timestamps. Both queries select public fields and use `lean()` for plain records. All four endpoints reuse `publicAgent()` and the existing central error handler.
 - `server/src/middleware/validateRequest.js` exports `validateRequest(schema, section)`. It checks a request section against a supplied Zod schema and passes failures to the shared error handler. Parsed data goes into `request.validated[section]` for route handlers to use.
 - `server/src/middleware/errorHandler.js` is the sole final API error handler. It formats Zod/request validation errors, parser errors, and expected application errors; hides unexpected internal details; and delegates with `next(error)` if a response has already started.
 - `server/src/utils/ApiError.js` defines `ApiError` for developer-controlled public application errors and `RequestValidationError` for internal Zod issues with their request-section label. Neither class writes an HTTP response; the central handler owns that job.
@@ -207,6 +209,7 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/test/create-agent.test.js` exercises the production app over HTTP while mocking `Agent.init()` and `Agent.create()`. The mock creates and validates real in-memory Agent documents, but supplies simulated persistence timestamps; it does not prove storage.
 - `server/test/list-agents.test.js` exercises the production GET route with mocked `Agent.find()` query chains and `Agent.countDocuments()`. It checks filters, escaped regexes, projection, sort, skip/limit, metadata, invalid queries, empty pages, and safe error responses without a database connection.
 - `server/test/get-agent.test.js` mocks `Agent.findById()` while exercising the production detail route over HTTP. It verifies the exact targeted ID, projection, public response fields, malformed ID rejection, uppercase hex handling, missing records, and safe unexpected errors. It also ensures the lookup does not call `Agent.find()` to fetch the list.
+- `server/test/update-agent.test.js` exercises PATCH over HTTP with mocked model updates, checks the targeted query and supplied fields, and tests normalization and errors. One additional test executes real Mongoose query middleware with a mocked collection method to verify timestamps and update validation. It never opens a database connection or proves persistence.
 - `server/scripts/verify-create-agent.js` is a separate, opt-in Atlas integration check. It redirects model calls to a clone of the same schema in a randomly named disposable collection, performs real writes and direct database reads, checks a duplicate, removes that collection, and closes connections. It does not insert into the normal agents collection and is not run by `npm test`.
 
 The error middleware uses Express's four-parameter convention and runs last, as described in the [official Express error-handling guide](https://expressjs.com/en/guide/error-handling/). Node's [watch-mode documentation](https://nodejs.org/api/cli.html#--watch) explains the development runner.
@@ -298,7 +301,7 @@ An unexpected key is reported at `(root)` with `Unexpected fields`. A duplicate 
 }
 ```
 
-Unexpected persistence or index-initialization errors use the existing generic **500** response. Phone/email are not unique. List and single-agent GET endpoints are documented below; PATCH and DELETE remain unimplemented and return 404.
+Unexpected persistence or index-initialization errors use the existing generic **500** response. Phone/email are not unique. List, single-agent GET, and PATCH endpoints are documented below; DELETE remains unimplemented and returns 404.
 
 Run `node --test test/create-agent.test.js` inside `server/` for the isolated route tests. To separately verify real persistence using private local configuration, run `node scripts/verify-create-agent.js`. It requires Atlas read/write/index/drop permissions for its disposable collection. The script creates one test document, verifies it directly from MongoDB, confirms duplicate rejection, then drops only its owned `fleetflow_step7_check_` collection. A forced timeout or cleanup error is reported; check for a leftover collection with that prefix in that case. The normal model may also initialize its collection/indexes through the usual startup flow, but integration test records go only into the disposable collection.
 
@@ -418,6 +421,55 @@ A valid ObjectId with no matching record returns **404 Not Found**:
 Unexpected database failures use the unchanged centralized **500** response, `{"success":false,"message":"Internal server error"}`. Database internals, metadata such as `__v`, and stack traces are not included. An unknown route still returns `Route not found` with 404; a malformed ID on this newly implemented route now correctly returns the documented 400. See the [Mongoose findById documentation](https://mongoosejs.com/docs/api/model.html#Model.findById()).
 
 Run `node --test test/get-agent.test.js test/create-agent.test.js test/list-agents.test.js` inside `server/` for focused detail/create/list checks. The database methods are mocked; these checks do not claim live MongoDB integration coverage.
+
+## Update a delivery agent
+
+**`PATCH /api/agents/:id`** uses MongoDB's `_id`, exposed as the public `id` in API responses, exactly like the single-agent GET endpoint. It never looks up the business `agentId` instead.
+
+Send `Content-Type: application/json` and at least one editable field: `fullName`, `phone`, `email`, `serviceArea`, or `status`. All are optional individually. Strings are trimmed, email is lowercased and syntax-checked, and status allows only `active` or `inactive`. Blank strings, nulls, incorrect types, arrays, empty objects, and unknown fields are rejected. The business `agentId`, database `_id`/`id`, `createdAt`, `updatedAt`, and `__v` cannot be changed through this endpoint. Caller-supplied MongoDB operators are also rejected.
+
+Example partial update:
+
+```http
+PATCH /api/agents/68f2d0000000000000000001
+Content-Type: application/json
+
+{"serviceArea":"North","status":"inactive"}
+```
+
+Successful response (**200**, illustrative values):
+
+```json
+{
+  "success": true,
+  "message": "Agent updated successfully",
+  "data": {
+    "id": "68f2d0000000000000000001",
+    "agentId": "AGENT-001",
+    "fullName": "Alex Morgan",
+    "phone": "+1 202-555-0142",
+    "email": "alex@example.com",
+    "serviceArea": "North",
+    "status": "inactive",
+    "createdAt": "2026-10-18T00:00:00.000Z",
+    "updatedAt": "2026-10-18T01:00:00.000Z"
+  }
+}
+```
+
+Only supplied editable fields are set; omitted fields keep their stored values, including an existing inactive status. No create defaults are inserted. Mongoose preserves `createdAt` and sets `updatedAt` for the update, including a request that supplies the same value already stored. The targeted update never creates a missing record.
+
+| Condition | Response |
+| --- | --- |
+| Malformed ObjectId | **400** `Request validation failed`, with `details` identifying `params.id` |
+| Invalid or missing update data | **400** `Request validation failed`, with safe body field details; empty/unknown-field issues use `(root)` |
+| Valid ObjectId without a matching agent | **404** `{"success":false,"message":"Agent not found"}` |
+| MongoDB duplicate-key error (11000) | **409** `{"success":false,"message":"Agent update conflicts with an existing record"}` |
+| Unexpected database failure | **500** `{"success":false,"message":"Internal server error"}` |
+
+Only `agentId` has a unique schema index, and it is immutable through PATCH. Phone/email remain shareable, so normal edits do not introduce a new uniqueness rule. The defensive 409 mapping handles duplicate-key errors without revealing index names, submitted values, or driver details. Validation uses the existing error format documented below; unexpected failures go to the same centralized handler.
+
+Run `node --test test/update-agent.test.js` inside `server/` for the focused tests, or `npm test` for all regressions. Database calls are mocked. The timestamp test checks actual Mongoose query middleware before a mocked collection call; no real update persistence or database uniqueness enforcement was integration-tested in Step 10. Private environment configuration is not needed or read by these checks.
 
 ## Request validation and centralized errors
 
@@ -576,8 +628,24 @@ Actual commands run inside `server/` on October 18, 2026:
 
 The earlier test that treated a single-agent GET as unimplemented was updated to use an actually unknown nested route. Update and delete still return 404. No dependencies were added; create/list implementations, the Agent model, app startup, and shared middleware were preserved. All database lookups were mocked: no real database check was run, no Atlas script was executed, and `server/.env` was not read or changed. Step 9 acceptance criteria passed; no known blocker remains.
 
-After review, the suggested Step 9 commit message for you to execute is:
+## Step 10 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/update-agent.test.js` | All 10 focused tests passed |
+| `npm test` | All 64 tests passed, including create/list/detail, health/404, malformed JSON/oversized body, configuration, and startup regressions |
+| `node --check src/controllers/agentController.js` | Passed |
+| `node --check src/routes/agentRoutes.js` | Passed |
+| `node --check src/validation/agentSchemas.js` | Passed |
+| `node --check test/create-agent.test.js` | Passed |
+| `node --check test/update-agent.test.js` | Passed |
+
+`git diff --check` from the root also passed. HTTP tests mock model updates and assert the targeted update options and supplied fields. A separate test runs real Mongoose timestamp and validation middleware against a mocked collection operation: `updatedAt` is added, omitted editable fields stay out of `$set`, `createdAt` remains unchanged, and invalid status fails before the collection call. These are isolated tests, not live MongoDB persistence checks. No dependencies were added, `server/.env` was not read or changed, and no Git staging or commit command was run. Step 10 acceptance criteria passed; no known blocker remains. DELETE is still unimplemented.
+
+After review, the suggested Step 10 commit message for you to execute is:
 
 ```text
-feat: add get agent by ID API
+feat: add update agent API
 ```

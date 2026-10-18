@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-9 are **COMPLETE** after verification; Steps 10-30 remain **PENDING**. Steps 1-8 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, and `e50b52d`. Step 9 detail/create/list checks and all 54 automated tests passed with database calls mocked; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-10 are **COMPLETE** after verification; Steps 11-30 remain **PENDING**. Steps 1-9 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, and `31671be`. Step 10's 10 focused tests and all 64 server tests passed without a live database. Real Mongoose query middleware was checked against a mocked collection operation; database persistence was not integration-tested. Step 10 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -88,7 +88,7 @@ Acceptance criteria: Existing agents are returned and malformed or missing IDs a
 Commit: feat: add single agent details endpoint
 
 ### Step 10 — Update agent API
-Status: PENDING
+Status: COMPLETE
 
 Objective: Implement PATCH /api/agents/:id.
 
