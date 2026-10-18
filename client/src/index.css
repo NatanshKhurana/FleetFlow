@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+@layer base {
+  html {
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-emerald-600);
+    outline-offset: 4px;
+  }
+
+  /* Allow long page text to wrap instead of stretching a narrow grid column. */
+  h1, h2, p {
+    overflow-wrap: anywhere;
+  }
+}

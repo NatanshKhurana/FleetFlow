@@ -23,11 +23,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 15 is COMPLETE and committed locally as `09580c8` (`feat: cache individual agent responses`). Live detail-cache behavior has not been tested by the agent.
 - Step 16 is COMPLETE and committed as `b8f8ec9` (`fix: invalidate stale agent cache entries`), with status documentation committed as `95aeef9`. Its verification results remain recorded below.
 - Step 17 is COMPLETE and committed as `f4d9846` (`test: verify Redis caching and consistency`). Live cache verification has not been run.
-- Step 18 is COMPLETE: React/Vite, Tailwind, React Router, Axios configuration, and Lucide are installed; production build and development/preview checks passed. Changes are uncommitted for review.
-- Steps 19-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 18 is COMPLETE and committed as `e170c33` (`feat: set up React dashboard application`).
+- Step 19 is COMPLETE and uncommitted. Build and five render tests passed; the project owner confirmed manual browser viewport and keyboard verification passed.
+- Steps 20-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` contains the React/Vite frontend foundation and a FleetFlow placeholder page. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
+- `client/` contains a responsive dashboard shell with shared branding, sidebar/header navigation, and a minimal welcome panel. Agent pages and real dashboard metrics remain planned. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
@@ -72,11 +73,18 @@ FleetFlow/
 |   |-- package-lock.json     Exact resolved dependency versions
 |   |-- index.html            Browser document with the React mount point
 |   |-- vite.config.js        React and Tailwind Vite plugins
-|   `-- src/
+|   |-- src/
 |       |-- main.jsx          React entry point and browser router
-|       |-- App.jsx           Placeholder route and unknown-page fallback
-|       |-- index.css         Tailwind import
+|       |-- App.jsx           Shared layout routes and unknown-page fallback
+|       |-- index.css         Tailwind import, font, wrapping, and focus styles
+|       |-- components/layout/
+|       |   |-- Brand.jsx     Shared logo and workspace subtitle
+|       |   |-- Sidebar.jsx   Desktop sidebar and shared navigation
+|       |   |-- Header.jsx    Header and mobile navigation disclosure
+|       |   `-- DashboardLayout.jsx  Shell, menu state, and content outlet
+|       |-- pages/OverviewPage.jsx   Minimal welcome panel
 |       `-- lib/api.js        Configured Axios client; no API calls yet
+|   `-- test/layout.test.js   Node-based React render and accessibility contracts
 |-- server/
 |   |-- .env.example         Safe backend configuration template
 |   |-- package.json         Server dependencies and commands
@@ -154,15 +162,16 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 npm run dev
 ```
 
-Open the local URL printed by Vite, normally `http://localhost:5173`. If that port is occupied, Vite may select the next available port. The FleetFlow placeholder works without starting MongoDB, Redis, or the backend. Stop Vite with Ctrl+C. For a fresh checkout, `npm ci` installs the exact versions in `client/package-lock.json`.
+Open the local URL printed by Vite, normally `http://localhost:5173`. If that port is occupied, Vite may select the next available port. The FleetFlow shell works without starting MongoDB, Redis, or the backend. Stop Vite with Ctrl+C. For a fresh checkout, `npm ci` installs the exact versions in `client/package-lock.json`.
 
 | Command inside `client/` | Purpose |
 | --- | --- |
 | `npm run dev` | Start Vite with development updates when files change |
 | `npm run build` | Compile the frontend into `client/dist/` for production |
 | `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
+| `npm test` | Run five frontend render-contract tests using Node's built-in test runner and installed Vite/React packages |
 
-`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs. Only the home placeholder and a minimal unknown-page fallback exist in this step; dashboard layout and agent screens remain planned.
+`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs. The home welcome panel and unknown-page fallback share the dashboard shell. Agent screens and real metrics remain planned.
 
 ### Frontend configuration
 
@@ -176,19 +185,42 @@ VITE_API_BASE_URL=http://localhost:5000/api
 
 Vite loads client environment files automatically. **Every `VITE_*` value is public browser configuration** and can be included in built assets. Never copy server database/Redis URLs, passwords, or secret tokens into client environment files. The client does not load the private backend environment file. See [Vite environment documentation](https://vite.dev/guide/env-and-mode).
 
-No API requests are made by the placeholder, and no backend CORS or development proxy changes are included. When API integration is implemented later, cross-origin requests from the Vite port to Express will need an appropriate CORS or proxy setup. A frontend build does not verify backend connectivity.
+No API requests are made by the shell, and no backend CORS or development proxy changes are included. When API integration is implemented later, cross-origin requests from the Vite port to Express will need an appropriate CORS or proxy setup. A frontend build does not verify backend connectivity.
 
 ### Frontend files and dependencies
 
 - `index.html` supplies the page title and the `root` element where React mounts.
 - `src/main.jsx` mounts React with `createRoot()`. `StrictMode` helps detect development issues; `BrowserRouter` enables navigation without full page reloads.
-- `src/App.jsx` selects the home placeholder or an unknown-page message using `Routes` and `Route`. The home page uses a Lucide truck icon and Tailwind utility classes. The fallback includes a keyboard-accessible home link.
-- `src/index.css` imports Tailwind. `vite.config.js` registers the React and Tailwind plugins. This follows the officially supported [Tailwind Vite setup](https://tailwindcss.com/docs/installation/using-vite); no legacy `tailwindcss init`, separate PostCSS configuration, or Autoprefixer package is needed.
+- `src/App.jsx` nests the home welcome panel and unknown-page route inside `DashboardLayout`, so both keep the same shell. `pages/OverviewPage.jsx` contains only welcome text and decorative Lucide icons.
+- `components/layout/Brand.jsx` shares the FleetFlow logo and subtitle. `Sidebar.jsx` exports the shared navigation and desktop sidebar. `Header.jsx` uses that same navigation for a mobile disclosure. `DashboardLayout.jsx` owns the menu state, responsive reset, Escape handler, skip link, page title, and React Router `Outlet`, which displays the selected page.
+- `src/index.css` imports Tailwind and defines the system font, visible keyboard focus outlines, and wrapping for long text. `vite.config.js` registers the React and Tailwind plugins. This follows the officially supported [Tailwind Vite setup](https://tailwindcss.com/docs/installation/using-vite); no legacy `tailwindcss init`, separate PostCSS configuration, or Autoprefixer package is needed.
 - `src/lib/api.js` configures Axios for later reuse. No authentication, interceptors, or agent service functions have been added.
 - `package.json` declares ES modules, Node requirements, dependencies, and scripts. `package-lock.json` records the exact installed dependency tree.
 - `client/.gitignore` complements the root ignore rules for dependencies, build output, tool caches, logs, editor settings, and local environment files. The safe `.env.example` stays trackable.
 
 React and React DOM render the page; React Router provides declarative routing; Axios prepares HTTP access; Lucide React provides icons. Vite, its React plugin, Tailwind CSS, and its Vite plugin are development/build dependencies. The [React Router installation guide](https://reactrouter.com/start/declarative/installation) uses the `react-router` package directly, so `react-router-dom` is not installed.
+
+### Step 19 layout and manual verification
+
+The shell uses slate neutrals, emerald accents, a white sidebar/header, and restrained typography. At `lg` (64rem, normally 1024px), a 16rem desktop sidebar sits beside a flexible content column. Below that breakpoint, the header shows branding with the current page title and a 44px navigation button. The button opens an inline navigation panel below the header; it pushes content down instead of covering it with a modal. There is no focus trap because the panel is not a dialog.
+
+Overview links to `/` with React Router's active-page indication. Agents is visibly marked Soon and disabled; no unfinished `/agents` page or route has been introduced. Unknown URLs preserve the shell and offer a link home. Content has a maximum width, responsive padding, a `minmax(0, 1fr)` grid column, and long-text wrapping to reduce overflow. The supported minimum viewport width is 320px.
+
+The menu button reports its current state through `aria-expanded`, identifies its panel with `aria-controls`, and changes its label between Open navigation and Close navigation. Closing via the selected Overview link or Escape returns focus to the menu button. Route changes and crossing into the desktop breakpoint reset the menu. Closed contents use the native `hidden` attribute, keeping their links out of keyboard navigation. A Skip to content link and visible focus outlines support keyboard use. Event listeners are removed when no longer needed.
+
+For future regression checks, run `npm run dev` inside `client/`, then use browser responsive/device tools:
+
+| Viewport | Expected behavior to verify |
+| --- | --- |
+| 320×568 and 390×844 | Branding, page title, and menu button fit; welcome text wraps; no horizontal scrolling |
+| 768×1024 (tablet portrait) | Inline mobile navigation and comfortable content spacing |
+| 1024×768 (tablet landscape) | Desktop sidebar replaces the mobile control; main content fits the remaining column |
+| 1280×800 and 1440×900 | Persistent sidebar/header, consistent spacing, and bounded content width |
+| 200% browser zoom | Navigation switches at the effective CSS width and text remains usable |
+
+At each relevant size, check that `document.documentElement.scrollWidth <= window.innerWidth`. Use Tab to reach Skip to content, activate it, and confirm focus moves to the main content. Below the desktop breakpoint, use Enter/Space on the menu control, check expanded/collapsed state, Tab to Overview, press Escape, and confirm the menu closes and focus returns to its button. Reopen it and select Overview to check the same close behavior. Open the menu, resize to desktop and back, and verify it stays closed. Check active Overview styling and confirm Agents has no working link. Load an unknown URL and follow Return to Overview.
+
+The project owner confirmed manual browser verification passed at 320px, 390px, 768px, 1024px, and 1440px: mobile menu open/close, Escape closing the menu and returning focus, Tab navigation, resizing across 1024px, and no horizontal overflow all passed. This browser verification was performed by the project owner, not the agent. Step 19 is COMPLETE; Steps 20-30 remain pending. No metrics, tables, forms, user profiles, fake data, API calls, or new dependencies were added.
 
 ## Backend setup and commands
 
@@ -1097,8 +1129,24 @@ From the root, `git check-ignore -v` confirmed that client dependencies, `dist/`
 
 No browser was connected to this session, so interactive browser behavior and visual appearance were not inspected. React rendering was checked directly without a DOM. No API requests or live service checks were made, and the backend test suite was not rerun because backend files are unchanged. No frontend test runner or linter was added for this minimal setup; build, configuration, render, HTTP, and ignore checks are the verification performed. The private backend environment file was not accessed or modified. No files were staged or committed. Step 18 acceptance criteria passed; Steps 19-30 remain pending.
 
-After review, the suggested Step 18 commit message for you to execute is:
+## Step 19 verification results
+
+Actual commands run inside `client/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `npm test` | All 5 render tests passed; 0 failed, 0 skipped. Repeated successfully after the final mobile-title and breakpoint adjustments. |
+| `npm run build` | Passed with Vite 8.3.4; final build produced ignored HTML, CSS, and JavaScript assets without errors |
+| `node --check test/layout.test.js` | Passed; the production build compiled all changed JSX |
+| `npm run preview -- --host 127.0.0.1 --port 4173 --strictPort` | Started successfully |
+| PowerShell here-string piped to `node --input-type=module` | Generated CSS contained the 40rem/64rem responsive rules, flexible grid columns, long-text wrapping, hidden-content rule, and focus styles. Native fetch returned HTTP 200 for preview HTML, both compiled JS/CSS assets, and the SPA document fallback at `/missing`. |
+
+From the root, `git diff --check` passed. No dependencies were installed, lockfiles and backend files are unchanged, and no private environment files were accessed. The frontend tests load JSX through Vite with environment-file loading disabled and render React to strings; they verify semantic structure, active routing, unavailable Agents navigation, mobile open/closed attributes, and the unknown-page shell. They do not execute DOM click/keyboard/resize events or measure layout. The preview server was stopped after verification. Backend tests were not rerun because no backend code changed. Nothing was staged or committed.
+
+The project owner's subsequent manual browser confirmation completes the viewport and keyboard verification recorded above. Step 19 is COMPLETE. Steps 20-30 remain pending.
+
+Suggested Step 19 commit message after review:
 
 ```text
-feat: set up React dashboard application
+feat: build responsive admin dashboard layout
 ```
