@@ -20,11 +20,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 12 is COMPLETE and committed locally as `c57405e` (`test: strengthen CRUD API coverage`). Its optional live MongoDB script has not been run.
 - Step 13 is COMPLETE and committed locally as `25c803f` (`feat: configure Redis connection`). The project owner subsequently verified Redis Cloud with `node scripts/verify-redis.js`, reporting successful connection and PING/PONG.
 - Step 14 is COMPLETE and committed locally as `0977418` (`feat: cache agent list responses in Redis`). Live list-cache behavior has not been tested by the agent.
-- Step 15 is COMPLETE after 31 focused tests and all 105 server tests passed. Changes remain uncommitted for review; live detail-cache behavior has not been tested.
-- Steps 16-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 15 is COMPLETE and committed locally as `09580c8` (`feat: cache individual agent responses`). Live detail-cache behavior has not been tested by the agent.
+- Step 16 is COMPLETE after 44 focused tests, all 117 server tests, and syntax checks passed. Changes remain uncommitted for review.
+- Steps 17-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL; mutation invalidation remains pending. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
+- `client/` remains empty. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; live cache behavior has not been checked by the agent.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
 
 ## Planned technology stack
@@ -42,7 +43,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents, listing with search/filters, fetching a single agent, partial updates, and deletion are implemented with request validation and safe error responses. List and single-agent caching are implemented; cache invalidation and dashboard screens remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents, listing with search/filters, fetching a single agent, partial updates, and deletion are implemented with request validation and safe error responses. List/detail caching and mutation invalidation are implemented; dashboard screens remain planned.
 
 ## High-level architecture
 
@@ -76,6 +77,7 @@ FleetFlow/
 |   |   |-- controllers/
 |   |   |   `-- agentController.js   Create/list/detail/update/delete handlers
 |   |   |-- services/
+|   |   |   |-- agentCacheState.js   Shared generation, invalidation, and bounded commands
 |   |   |   |-- agentListCache.js    List cache keys, JSON checks, and Redis reads/writes
 |   |   |   `-- agentDetailCache.js  Agent-specific cached detail responses
 |   |   |-- validation/
@@ -103,6 +105,7 @@ FleetFlow/
 |       |-- update-agent.test.js    Partial updates and Mongoose query middleware
 |       |-- delete-agent.test.js    Mocked targeted deletion and error responses
 |       |-- crud-flow.test.js       Connected lifecycle with a fresh mocked store
+|       |-- cache-invalidation.test.js  Mutation invalidation and stale-fill protection
 |       |-- integration-script.test.js  Optional-script configuration guard
 |       |-- request-errors.test.js  Request middleware and safe error responses
 |       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
@@ -233,7 +236,7 @@ For an optional real connectivity check, configure `FLEETFLOW_TEST_REDIS_URL` pr
 node scripts/verify-redis.js
 ```
 
-This separate script never loads `.env` or falls back to `REDIS_URL`. It connects, requires `PING` to return `PONG`, and closes the client. It writes no data and has an eight-second overall deadline. The normal suite checks its missing-configuration guard without connecting. The project owner reported a successful real Redis Cloud connection and PING/PONG using this command after Step 13. This verifies connectivity, not cached reads, writes, or expiry. No live caching check was run by the agent during Steps 14-15. For caching, the Redis user also needs GET and SET permission for the list/detail cache prefixes; configure TLS/credentials privately.
+This separate script never loads `.env` or falls back to `REDIS_URL`. It connects, requires `PING` to return `PONG`, and closes the client. It writes no data and has an eight-second overall deadline. The normal suite checks its missing-configuration guard without connecting. The project owner reported a successful real Redis Cloud connection and PING/PONG using this command after Step 13. This verifies connectivity, not cached reads, writes, expiry, or invalidation. No live caching check was run by the agent during Steps 14-16. Caching now requires GET/SET permission for the `fleetflow:agents:list:v2:`, `fleetflow:agents:detail:v2:`, and `fleetflow:agents:cache:v2:` prefixes, plus DEL permission for affected detail keys. The generation SET also uses NX during initialization. Configure permissions and TLS/credentials privately.
 
 ## Backend files and request flow
 
@@ -244,6 +247,7 @@ This separate script never loads `.env` or falls back to `REDIS_URL`. It connect
 - `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
 - `server/src/config/redis.js` manages the optional shared Redis client with connection/close deadlines and safe fixed logs. Its factory supports isolated tests without a live service.
 - `server/src/services/agentListCache.js` builds deterministic list keys, checks cached JSON against the public response shape, and handles Redis failures with fixed warnings. It reads the existing ready client and writes the full response with an atomic expiry. Its factory accepts a fake client getter/logger for isolated tests.
+- `server/src/services/agentCacheState.js` owns the shared Redis generation key and post-mutation invalidation. Its `invalidate(id)` rotates the generation and deletes the affected detail key, with fixed safe logs and a process-local bypass after failure. `cacheCommand()` bounds both queued commands and stalled responses. Both production cache services share this state; tests can create independent managers.
 - `server/src/services/agentDetailCache.js` follows the same pattern for individual agents. It uses the ready Redis client, lowercases validated ObjectIds in keys, checks that cached data belongs to the requested ID, and falls back safely when Redis or cached data fails.
 - `server/src/validation/cachedAgentSchema.js` holds the unchanged public-agent allowlist previously defined in the list cache. Both services reuse it to reject malformed cached fields or internal metadata such as `__v`.
 - `server/src/app.js` creates and exports the Express application without opening a network port. Middleware runs in order: `express.json()`, health, the `/api/agents` router, the unchanged JSON 404 fallback, and the existing `errorHandler` last.
@@ -268,6 +272,7 @@ This separate script never loads `.env` or falls back to `REDIS_URL`. It connect
 - `server/test/crud-flow.test.js` runs all five endpoints against one fresh, test-local mocked store with deterministic IDs/timestamps. It checks how changes affect later requests. It does not reimplement MongoDB search/filter behavior; the existing list tests continue checking that query contract separately.
 - `server/test-support/crudFlow.js` contains shared HTTP assertions, including readback after updates, no changes after rejected writes, an unrelated record surviving deletion, and missing-record responses after deletion. Both the normal lifecycle test and optional real integration script run these same assertions.
 - `server/test-support/fakeRedis.js` contains the existing list-test fake, now reused by list and detail tests. Each call creates its own storage, clock, and mocked GET/SET functions, so tests share no records and expiry needs no real-time sleep.
+- `server/test/cache-invalidation.test.js` tests mutation ordering, all list variants, detail deletion, failure/bypass behavior, late fills, generation initialization/eviction, overlapping invalidations, and bounded waits. `crud-flow.test.js` runs the existing HTTP lifecycle twice, with caching unavailable and with fake Redis enabled.
 - `server/test/integration-script.test.js` starts the optional CRUD and Redis scripts without their explicit test URLs and verifies that they stop with clear messages. It does not start either service or read private configuration.
 - `server/scripts/verify-crud.js` is an optional real MongoDB check using a separate connection and a randomly named disposable collection. It redirects all model calls used by the five endpoints to that isolated model, restores the original methods, and cleans up. It reads only `FLEETFLOW_TEST_MONGODB_URI` from the process environment and never imports the `.env` loader.
 - `server/scripts/verify-create-agent.js` is a separate, opt-in Atlas integration check. It redirects model calls to a clone of the same schema in a randomly named disposable collection, performs real writes and direct database reads, checks a duplicate, removes that collection, and closes connections. It does not insert into the normal agents collection and is not run by `npm test`.
@@ -431,13 +436,13 @@ The list cache applies only to **`GET /api/agents`** (including its normal trail
 
 On a miss, the controller runs the existing MongoDB list/count queries, formats the public response, and stores that whole JSON response in Redis. Valid empty results and pages beyond the last page are cached too. Invalid query requests and database failures are never cached. Missing Redis, command errors/timeouts, malformed JSON, invalid public fields, or mismatched pagination cause a miss. Redis write failures still return the successful MongoDB result. Warnings never include raw errors, cached data, search values, keys, or credentials.
 
-Keys have the form `fleetflow:agents:list:v1:<sha256>`. The hash uses a fixed-order JSON object containing **`page`, `limit`, `search`, `status`, and `serviceArea`** after the existing query schema has applied defaults and trimming. Empty optional text is equivalent to omission. Query-string ordering does not matter. Different response-affecting values have separate keys; service-area case is preserved because its filter is case-sensitive. Search case is also preserved, so equivalent searches with different letter case can occupy separate entries. Hashing keeps raw contact/search text out of key names; it does not encrypt the response value.
+Keys have the form `fleetflow:agents:list:v2:<generation>:<sha256>`. The generation is read from Redis for each request. The hash still uses a fixed-order JSON object containing **`page`, `limit`, `search`, `status`, and `serviceArea`** after the existing query schema has applied defaults and trimming. Empty optional text is equivalent to omission. Query-string ordering does not matter. Different response-affecting values have separate keys; service-area case is preserved because its filter is case-sensitive. Search case is also preserved, so equivalent searches with different letter case can occupy separate entries. Hashing keeps raw contact/search text out of key names; it does not encrypt the response value.
 
 For example, `/api/agents` and `/api/agents?limit=10&page=1` share a cache entry. `/api/agents?page=2` and `/api/agents?status=inactive` use different entries. All filtering and pagination behavior remains the same as documented above.
 
-Each successful cache write uses one Redis SET with an `EX` expiration of `AGENT_LIST_CACHE_TTL_SECONDS`, default **60 seconds**. Redis expires the entry automatically; the next request queries MongoDB and fills it again. Hits do not refresh the TTL. Each Redis GET/SET uses a one-second command timeout through [node-redis command options](https://github.com/redis/node-redis/blob/master/docs/command-options.md); an unsuccessful read followed by an unsuccessful write can add up to two seconds of cache waiting before the MongoDB response is returned. MongoDB time is additional.
+Each successful cache write uses one Redis SET with an `EX` expiration of `AGENT_LIST_CACHE_TTL_SECONDS`, default **60 seconds**. Redis expires the entry automatically; the next request queries MongoDB and fills it again. Hits do not refresh the TTL. Each Redis operation now has an application deadline of one second in addition to the [node-redis command-queue timeout](https://github.com/redis/node-redis/blob/master/docs/command-options.md#timeout). Normal hits use a generation GET and a payload GET; misses add a payload SET. First-time generation initialization adds a conditional SET and another GET. These sequential operations can add latency during an outage; MongoDB time is additional. A timeout returns control without retrying and does not guarantee that a command already sent to Redis was cancelled.
 
-**Invalidation is deferred to Step 16.** Create, update, and delete do not clear entries yet, so cached lists and totals can remain stale until their TTL expires, including a cached empty list after creation. Simultaneous misses may each query MongoDB; no locking or request coalescing is introduced.
+Successful create, update, and delete operations now rotate the shared generation before returning their existing success responses. Every old list query variant becomes unreachable, including previously cached empty lists and pagination totals. Old entries retain their original TTL and expire naturally. Simultaneous misses may still each query MongoDB; no locking or request coalescing is introduced.
 
 The template now includes safe `AGENT_LIST_CACHE_TTL_SECONDS=60`. Existing `.env` files need no change to use the default. To choose a different lifetime later, configure the variable privately as a whole number from 1 to 86400 and restart the backend; blank or invalid values fail startup validation without echoing the value. Keep the real `.env` untracked. The normal test suite never loads it.
 
@@ -509,7 +514,7 @@ Run `node --test test/get-agent.test.js test/create-agent.test.js test/list-agen
 
 ## Individual-agent detail caching
 
-**`GET /api/agents/:id`** checks Redis only after the existing ObjectId validation passes. Its key is `fleetflow:agents:detail:v1:<lowercase MongoDB ObjectId>`. For example, the ID `68f2d0000000000000000001` uses `fleetflow:agents:detail:v1:68f2d0000000000000000001`. Uppercase and lowercase hexadecimal forms share one key. Different agents and list requests have separate keys; business `agentId` values are still not accepted as route IDs.
+**`GET /api/agents/:id`** checks Redis only after the existing ObjectId validation passes. Its key is `fleetflow:agents:detail:v2:<lowercase MongoDB ObjectId>`. For example, the ID `68f2d0000000000000000001` uses `fleetflow:agents:detail:v2:68f2d0000000000000000001`. Uppercase and lowercase hexadecimal forms share one key. Different agents and list requests have separate keys; business `agentId` values are still not accepted as route IDs. Redis stores an internal `{ generation, response }` wrapper; clients still receive the unchanged public response only.
 
 A valid cache hit returns the complete existing success response (`success`, `message`, and public `data`) without calling MongoDB. On a miss, the existing targeted lookup runs. A found agent is formatted, cached as JSON, and returned with HTTP 200. Missing agents still return the existing JSON 404 and are **never cached**; validation failures and database errors are not cached either.
 
@@ -517,7 +522,7 @@ The service reuses `getRedisClient()` and the existing **`AGENT_LIST_CACHE_TTL_S
 
 Missing Redis, read errors/timeouts, malformed JSON, invalid cached fields, or a cached response whose agent ID differs from the requested ID all fall back to MongoDB. Redis write failure still returns the found agent successfully. Like the list cache, GET/SET commands have a one-second timeout and warnings contain fixed text only, without keys, URLs, cached contact data, stack traces, or raw errors.
 
-**No invalidation is implemented until Step 16.** After an update, a cached detail can return its previous values until expiry. After deletion, an earlier cached success can still return 200 until expiry; a cache miss for that deleted record returns 404 and creates no cache entry. PATCH and DELETE responses themselves remain uncached. Simultaneous misses are not coalesced.
+Successful mutations rotate the shared generation, and each also deletes the affected detail key. A detail entry with an earlier generation is rejected even if an older in-flight lookup writes it back after deletion. Rotating the shared generation conservatively invalidates other agents' details as well; this favors consistency over retaining every unrelated hit. PATCH and DELETE responses themselves remain uncached. Simultaneous misses are not coalesced.
 
 Run inside `server/`:
 
@@ -527,6 +532,31 @@ npm test
 ```
 
 Tests use mocked MongoDB and the shared fake Redis, including its deterministic expiry clock. They verify cache hits bypass lookups, miss serialization, identity checks, 60-second default expiry, configured TTL, safe Redis fallback, and no negative/error caching. These tests do not prove live Redis expiry or database persistence. The earlier real Redis Cloud PING/PONG is connectivity evidence only.
+
+## Invalidation after successful mutations
+
+Once MongoDB reports a successful create, update, or delete, the controller awaits `agentCacheState.invalidate(id)` before returning its existing 201, 200, or empty 204 response. Failed validation, duplicate-key errors, other database errors, and missing update/delete targets do not invalidate anything.
+
+Invalidation performs exactly two Redis operations, attempted together: **SET** a new random generation at `fleetflow:agents:cache:v2:generation`, and **DEL** the affected agent's detail key. It uses no KEYS, SCAN, wildcard deletion, FLUSHDB, or loop over stored pages. Work stays constant regardless of how many page/search/filter combinations are cached. Each operation has a one-second deadline; neither command failure prevents the other from being attempted.
+
+Think of the generation as the current edition of the agent cache. Every list read uses that edition in its key. Detail entries carry it alongside their response. A new edition makes all old editions unusable immediately for subsequent requests when Redis invalidation succeeds. The old list entries are left to expire under the unchanged TTL, so no large deletion job is needed.
+
+Reads capture the generation **before** querying MongoDB and keep that same generation when filling the cache. A read that finishes late therefore cannot populate a usable stale entry in a newer edition. In-flight requests that began before invalidation can still finish with their earlier result; this is not a transaction across MongoDB, Redis, and all active HTTP requests.
+
+The generation key has no TTL and holds only one small token. If it is missing or evicted, bounded GET/SET-NX/GET initialization chooses a fresh UUID instead of reusing a fixed default. Concurrent initializers converge on the Redis value. An unavailable or unreadable generation causes MongoDB fallback. Generations are not memoized in process, so healthy instances observe one another's rotations. The new v2 prefixes also prevent this code from reading legacy v1 entries; those entries expire normally. Retire older application versions that do not implement invalidation when deploying this change.
+
+Redis absence, errors, or timeouts do **not** turn a committed MongoDB mutation into an API failure. On invalidation failure this process bypasses cache reads and writes until a later successful invalidation safely restores caching. A concurrent success that started before a failure cannot accidentally clear that bypass. Fixed warning messages never include keys, URLs, credentials, documents, or raw exceptions.
+
+This remains best-effort invalidation across two services, without distributed transactions or a durable retry queue. Other instances cannot learn about a failed invalidation while Redis is unavailable, and the bypass flag does not survive process restarts. In those cases, remaining TTL bounds stale entries; a successful later rotation restores a shared fresh generation. Changes made directly in MongoDB outside these endpoints are likewise limited by TTL. These limitations do not change normal mutation response contracts.
+
+Run inside `server/`:
+
+```powershell
+node --test test/cache-invalidation.test.js test/crud-flow.test.js test/get-agent.test.js test/list-agents.test.js
+npm test
+```
+
+Tests use fake Redis and mocked MongoDB, including the cache-enabled HTTP CRUD flow. They verify successful and failed mutations, all query variants, detail deletion, unrelated-key preservation, late fills, generation eviction/concurrent initialization, failure recovery, concurrent failure bypass, and stalled-command deadlines. They do not establish live Redis/MongoDB invalidation coverage. The earlier PING/PONG check establishes connectivity only.
 
 ## Update a delivery agent
 
@@ -909,8 +939,28 @@ Actual commands run inside `server/` on October 18, 2026:
 
 `git diff --check` from the root also passed. Detail tests use mocked MongoDB and fake Redis. They verify full-response serialization, hits skipping MongoDB, agent-specific/case-normalized keys, expiry at 60 seconds using a fake clock, reuse of the existing configured TTL, malformed/mismatched payloads, safe read/write failures, validation before Redis access, and no caching of missing agents or database errors. The public cached-agent schema and the previous list-test fake were extracted unchanged for reuse; list regressions passed. No live caching/persistence check was performed. No dependencies, invalidation, real `.env` access/changes, staging, or commits were added. Step 15 acceptance criteria passed; Steps 16-30 remain pending.
 
-After review, the suggested Step 15 commit message for you to execute is:
+## Step 16 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/cache-invalidation.test.js test/crud-flow.test.js test/get-agent.test.js test/list-agents.test.js` | All 44 focused tests passed |
+| `npm test` | All 117 server tests passed; 0 failed and 0 skipped |
+| `node --check src/services/agentCacheState.js` | Passed |
+| `node --check src/services/agentListCache.js` | Passed |
+| `node --check src/services/agentDetailCache.js` | Passed |
+| `node --check src/controllers/agentController.js` | Passed |
+| `node --check test-support/fakeRedis.js` | Passed |
+| `node --check test/cache-invalidation.test.js` | Passed |
+| `node --check test/crud-flow.test.js` | Passed |
+| `node --check test/get-agent.test.js` | Passed |
+| `node --check test/list-agents.test.js` | Passed |
+
+`git diff --check` from the repository root also passed. Tests use mocked MongoDB and fake Redis; no live persistence or cache-invalidation integration test was performed. Coverage includes successful mutation invalidation across list variants, detail-key deletion, failed mutations leaving caches untouched, unavailable/erroring/stalled Redis, late cache fills, concurrent initialization and invalidation, and complete HTTP CRUD flows with caching enabled and disabled. No dependencies were added. The real `server/.env` was not accessed or modified, and nothing was staged or committed. Steps 17-30 remain pending.
+
+After review, the suggested Step 16 commit message for you to execute is:
 
 ```text
-feat: cache individual agent responses
+fix: invalidate stale agent cache entries
 ```

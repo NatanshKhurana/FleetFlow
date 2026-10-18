@@ -2,6 +2,7 @@ import Agent from '../models/Agent.js';
 import { ApiError } from '../utils/ApiError.js';
 import { agentListCache } from '../services/agentListCache.js';
 import { agentDetailCache } from '../services/agentDetailCache.js';
+import { agentCacheState } from '../services/agentCacheState.js';
 
 function publicAgent(agent) {
   // All agent endpoints expose the same fields, without Mongoose internals.
@@ -23,6 +24,7 @@ export async function createAgent(request, response, next) {
     // Wait for the unique index before writing, including the first request.
     await Agent.init();
     const agent = await Agent.create(request.validated.body);
+    await agentCacheState.invalidate(agent._id.toString());
 
     // Explicitly select public fields instead of serializing database metadata.
     return response.status(201).json({
@@ -44,7 +46,7 @@ function escapeRegex(text) {
 
 export async function listAgents(request, response, next) {
   try {
-    const cached = await agentListCache.read(request.validated.query);
+    const { response: cached, generation } = await agentListCache.read(request.validated.query);
     if (cached) return response.status(200).json(cached);
 
     const { page, limit, search, status, serviceArea } = request.validated.query;
@@ -76,7 +78,7 @@ export async function listAgents(request, response, next) {
       data: agents.map(publicAgent),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
-    await agentListCache.write(request.validated.query, result, request.app.locals.agentListCacheTtlSeconds);
+    await agentListCache.write(request.validated.query, result, request.app.locals.agentListCacheTtlSeconds, generation);
     return response.status(200).json(result);
   } catch (error) {
     return next(error);
@@ -86,7 +88,7 @@ export async function listAgents(request, response, next) {
 export async function getAgentById(request, response, next) {
   try {
     const id = request.validated.params.id;
-    const cached = await agentDetailCache.read(id);
+    const { response: cached, generation } = await agentDetailCache.read(id);
     if (cached) return response.status(200).json(cached);
 
     const agent = await Agent.findById(id)
@@ -104,7 +106,7 @@ export async function getAgentById(request, response, next) {
       data: publicAgent(agent),
     };
     // Reuse the list TTL setting; only a successfully found agent reaches this write.
-    await agentDetailCache.write(id, result, request.app.locals.agentListCacheTtlSeconds);
+    await agentDetailCache.write(id, result, request.app.locals.agentListCacheTtlSeconds, generation);
     return response.status(200).json(result);
   } catch (error) {
     return next(error);
@@ -127,6 +129,7 @@ export async function updateAgent(request, response, next) {
       return next(new ApiError(404, 'Agent not found'));
     }
 
+    await agentCacheState.invalidate(agent._id.toString());
     return response.status(200).json({
       success: true,
       message: 'Agent updated successfully',
@@ -153,6 +156,7 @@ export async function deleteAgent(request, response, next) {
     }
 
     // The roadmap requires 204: a successful response has no JSON body.
+    await agentCacheState.invalidate(request.validated.params.id);
     return response.status(204).end();
   } catch (error) {
     return next(error);

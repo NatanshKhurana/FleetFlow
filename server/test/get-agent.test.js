@@ -117,7 +117,7 @@ test('a detail miss caches the complete public response and a hit skips MongoDB'
   const first = await get(base, id);
   assert.equal(first.status, 200);
   const body = await first.json();
-  assert.deepEqual(JSON.parse(redis.set.mock.calls[0].arguments[1]), body);
+  assert.deepEqual(JSON.parse(redis.set.mock.calls[0].arguments[1]), { generation: redis.generation, response: body });
   assert.deepEqual(redis.set.mock.calls[0].arguments[2], { expiration: { type: 'EX', value: 60 } });
   const hit = await get(base, id);
   assert.equal(hit.status, 200);
@@ -135,12 +135,14 @@ test('detail keys normalize ObjectId case and separate different agents and list
   assert.equal(uppercase.status, 200);
   assert.equal((await uppercase.json()).data.id, id);
   assert.equal(findById.mock.callCount(), 1);
-  assert.equal(redis.get.mock.calls[0].arguments[0], `fleetflow:agents:detail:v1:${id}`);
+  assert.equal(redis.get.mock.calls[0].arguments[0], `fleetflow:agents:detail:v2:${id}`);
   assert.equal(redis.get.mock.calls[0].arguments[0], redis.get.mock.calls[1].arguments[0]);
   const otherId = '68f2d0000000000000000002';
   redis.prime(agentDetailCacheKey(otherId), JSON.stringify({
+    generation: redis.generation, response: {
     success: true, message: 'Agent retrieved successfully',
     data: { ...(await (await get(base, id)).json()).data, id: otherId, agentId: 'AGENT-002' },
+    },
   }));
   assert.equal((await (await get(base, otherId)).json()).data.agentId, 'AGENT-002');
   assert.equal(findById.mock.callCount(), 1);
@@ -174,8 +176,8 @@ test('malformed detail JSON, wrong shapes, internal fields, and another agent ID
   const valid = await (await get(base, id)).json();
   const values = [
     '{fake-private-malformed-json', 'null', '{}',
-    JSON.stringify({ ...valid, data: { ...valid.data, __v: 1 } }),
-    JSON.stringify({ ...valid, data: { ...valid.data, id: '68f2d0000000000000000002' } }),
+    JSON.stringify({ generation: redis.generation, response: { ...valid, data: { ...valid.data, __v: 1 } } }),
+    JSON.stringify({ generation: redis.generation, response: { ...valid, data: { ...valid.data, id: '68f2d0000000000000000002' } } }),
   ];
   for (const value of values) {
     redis.prime(agentDetailCacheKey(id), value);

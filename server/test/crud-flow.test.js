@@ -4,6 +4,10 @@ import test from 'node:test';
 import app from '../src/app.js';
 import Agent from '../src/models/Agent.js';
 import { verifyCrudFlow } from '../test-support/crudFlow.js';
+import { fakeRedis } from '../test-support/fakeRedis.js';
+import { agentCacheState, createAgentCacheState } from '../src/services/agentCacheState.js';
+import { agentListCache, createAgentListCache } from '../src/services/agentListCache.js';
+import { agentDetailCache, createAgentDetailCache } from '../src/services/agentDetailCache.js';
 
 function queryResult(read) {
   const options = { skip: 0, limit: 10 };
@@ -18,7 +22,18 @@ function queryResult(read) {
   return query;
 }
 
-test('CRUD lifecycle shares state across requests, rejects failed writes, and leaves deleted records missing', async (t) => {
+for (const cacheEnabled of [false, true]) {
+test(`CRUD lifecycle with caching ${cacheEnabled ? 'enabled' : 'unavailable'} preserves mutations and missing records`, async (t) => {
+  const redis = cacheEnabled ? fakeRedis(t) : null;
+  const options = { getClient: () => redis, logger: { warn() {} } };
+  const state = createAgentCacheState(options);
+  const lists = createAgentListCache({ ...options, state });
+  const details = createAgentDetailCache({ ...options, state });
+  t.mock.method(agentListCache, 'read', lists.read);
+  t.mock.method(agentListCache, 'write', lists.write);
+  t.mock.method(agentDetailCache, 'read', details.read);
+  t.mock.method(agentDetailCache, 'write', details.write);
+  t.mock.method(agentCacheState, 'invalidate', state.invalidate);
   // A new store and deterministic clock belong to this test only.
   // This simulates storage, not MongoDB's query engine or unique index enforcement.
   const records = new Map();
@@ -67,4 +82,10 @@ test('CRUD lifecycle shares state across requests, rejects failed writes, and le
   await once(server, 'listening');
   await verifyCrudFlow(`http://127.0.0.1:${server.address().port}`);
   assert.equal(records.size, 0);
+  if (redis) {
+    // Five successful writes; duplicate, invalid, and missing-record requests add none.
+    assert.equal(redis.generationSet.mock.callCount(), 6); // Includes first initialization.
+    assert.equal(redis.del.mock.callCount(), 5);
+  }
 });
+}

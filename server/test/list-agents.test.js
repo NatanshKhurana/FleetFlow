@@ -218,7 +218,7 @@ test('normalized defaults, trimmed values, and query ordering produce the same c
   assert.equal(keys[0], keys[1]);
   assert.equal(keys[2], keys[3]);
   assert.equal(find.mock.callCount(), 2);
-  assert.match(keys[2], /^fleetflow:agents:list:v1:[a-f0-9]{64}$/);
+  assert.match(keys[2], /^fleetflow:agents:list:v2:[a-f0-9-]{36}:[a-f0-9]{64}$/);
   assert.doesNotMatch(keys[2], /Alex|Central/);
 });
 
