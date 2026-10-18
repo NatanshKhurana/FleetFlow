@@ -1,5 +1,6 @@
 import express from 'express';
 import { errorHandler } from './middleware/errorHandler.js';
+import agentRoutes from './routes/agentRoutes.js';
 
 const app = express();
 
@@ -12,6 +13,8 @@ app.get('/api/health', (request, response) => {
     message: 'FleetFlow API is running',
   });
 });
+
+app.use('/api/agents', agentRoutes);
 
 // This runs only when no route above has answered the request.
 app.use((request, response) => {

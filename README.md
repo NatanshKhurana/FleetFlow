@@ -4,18 +4,19 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Current setup status
 
-**The Express backend, Delivery Agent model, reusable request validation, and centralized error handling are implemented.** The backend connects to MongoDB Atlas before accepting HTTP requests. Agent CRUD workflows and the frontend have not been implemented yet.
+**The backend supports creating delivery agents with `POST /api/agents`.** It connects to MongoDB Atlas before accepting HTTP requests and reuses the Agent model, request validation, and centralized errors. List, read, update, delete, and frontend workflows have not been implemented yet.
 
 - Step 1 is COMPLETE and committed locally as `0f170dc` (`chore: initialize FleetFlow project structure`).
 - Step 2 is COMPLETE and committed locally as `e5ad3ec` (`feat: set up Express server and health check`).
 - Step 3 is COMPLETE and committed locally as `ee4870c` (`chore: configure environment variables`).
 - Step 4 is COMPLETE and committed locally as `9e814f5` (`feat: connect application to MongoDB`).
 - Step 5 is COMPLETE and committed locally as `4fa2766` (`feat: define delivery agent data model`).
-- Step 6 is COMPLETE after request validation, error handling, and all 32 automated tests passed. Its changes await review and remain uncommitted.
-- Steps 7-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
-- The server exposes a health endpoint and consistent JSON error responses.
+- Step 6 is COMPLETE and committed locally as `772929d` (`feat: add request validation and API errors`).
+- Step 7 is COMPLETE after all 40 automated tests, an isolated real-persistence check, and MongoDB-gated startup verification passed. Its changes await review and remain uncommitted.
+- Steps 8-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- The server exposes health and create-agent endpoints with consistent JSON error responses.
 - Express, dotenv, Zod, and Mongoose are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. The Agent model is defined and exported for later CRUD steps; there are no CRUD endpoints, authentication, or Redis connections.
+- `client/` remains empty. Only the create-agent CRUD endpoint is implemented; there is no authentication or Redis connection.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional until Step 13.
 
 ## Planned technology stack
@@ -33,7 +34,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 
 ## Planned features
 
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. The Agent schema now defines agentId, fullName, phone, email, serviceArea, status, createdAt, and updatedAt. Request validation, clear error states, responsive forms and tables, and Redis caching with expiry and invalidation will support the future workflows. Those workflows remain planned.
+The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active, inactive, and recent agents. Creating agents is implemented with request validation and safe error responses. Other workflows, dashboard screens, and Redis caching remain planned.
 
 ## High-level architecture
 
@@ -62,6 +63,12 @@ FleetFlow/
 |   |   |-- app.js           Express routes and middleware
 |   |   |-- server.js        Starts the HTTP server
 |   |   |-- startup.js       Connects the database before listening; owns cleanup
+|   |   |-- routes/
+|   |   |   `-- agentRoutes.js       POST route and validation wiring
+|   |   |-- controllers/
+|   |   |   `-- agentController.js   Creates an agent and selects public fields
+|   |   |-- validation/
+|   |   |   `-- agentSchemas.js     Strict create-agent request schema
 |   |   |-- config/
 |   |   |   |-- env.js       Loads and validates backend configuration
 |   |   |   `-- db.js        Mongoose connection and safe lifecycle messages
@@ -72,12 +79,15 @@ FleetFlow/
 |   |   |   `-- errorHandler.js     Final JSON error handler
 |   |   `-- utils/
 |   |       `-- ApiError.js  Expected application and request validation errors
-|   `-- test/
+|   |-- test/
 |       |-- env.test.js      Configuration regression tests
 |       |-- db.test.js       Mocked database connection tests
 |       |-- agent.test.js    Agent schema validation and index definitions
+|       |-- create-agent.test.js    Mocked create-agent endpoint tests
 |       |-- request-errors.test.js  Request middleware and safe error responses
 |       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
+|   `-- scripts/
+|       `-- verify-create-agent.js  Opt-in real Atlas persistence check
 |-- docs/
 |   |-- DEVELOPMENT_RULES.md Permanent development rules
 |   `-- STEP_PLAN.md         Roadmap and acceptance criteria
@@ -110,7 +120,7 @@ Direct dependencies are Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, and Mongoose 9.
 
 ## MongoDB Atlas prerequisites and startup
 
-MongoDB is FleetFlow's persistent database: it will retain agent records between server restarts. Redis will be introduced later for caching; it is not required or connected now. The Agent schema is defined below; it is not imported into startup yet. Step 5 performs no live database writes or index creation and adds no CRUD operations.
+MongoDB is FleetFlow's persistent database: it retains created agents between server restarts. Redis will be introduced later for caching; it is not required or connected now. The create route imports the existing Agent model. Mongoose can initialize its collection and indexes after connection; the controller also waits for `Agent.init()` before writing so duplicate protection is ready.
 
 Before starting, have an active Atlas cluster, a database user with access to the intended FleetFlow database, and your current machine's IP permitted in Atlas Network Access. A database user is separate from an Atlas website account. Obtain the Node.js driver connection URI privately from Atlas, fill in the database user's credentials and application database name locally, and save it as `MONGODB_URI` in `server/.env`. Encode special characters in credentials as required by the URI format. Do not paste the URI into chat, logs, documentation, or Git. Existing `.env` files must be preserved; the guarded PowerShell copy above only creates one when absent.
 
@@ -136,7 +146,7 @@ For connection trouble, check the private database username/password, database p
 
 | Field | Purpose and rules |
 | --- | --- |
-| `agentId` | Business identifier for the agent; required trimmed string with a unique MongoDB index. Values remain case-sensitive. This step does not generate IDs. It is separate from MongoDB's built-in `_id`. |
+| `agentId` | Caller-supplied business identifier; required trimmed string with a unique MongoDB index. Values remain case-sensitive. It is separate from MongoDB's generated `_id`, exposed as `id` in API responses. No sequence counter or business-ID generator is introduced. |
 | `fullName` | Agent's display name; required trimmed string. |
 | `phone` | Contact number; required trimmed string. Internal formatting is preserved, including a leading `+`. |
 | `email` | Contact email; required string, trimmed and converted to lowercase. |
@@ -147,9 +157,9 @@ For connection trouble, check the private database username/password, database p
 
 `timestamps: true` enables the two date fields. Merely constructing or validating an unsaved document does not populate timestamps. The schema tests check timestamp configuration without saving to a database.
 
-Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen as values are assigned, before validation or persistence. No international phone canonicalization or email-format validator is added to the model; these fields currently enforce required non-empty text. Step 6 provides reusable request-validation middleware; Agent-specific request schemas will be defined with the later CRUD endpoints.
+Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen before persistence. The model continues enforcing non-empty required strings without a phone-format rule; the create-request schema additionally validates email syntax. No international phone canonicalization is introduced.
 
-Mongoose validation catches missing required fields, blank required text after trimming, and unsupported status values before a normal save. This helps keep records consistent; it does not replace request validation. `unique: true` declares a MongoDB index rather than a Mongoose validator: `validate()` cannot detect duplicate stored IDs. Once the unique index exists, MongoDB rejects conflicting writes with a duplicate-key error. Future CRUD setup must ensure that index is ready and handle those errors. This step verifies the index definition only, without creating it in Atlas. See the [Mongoose validation guide](https://mongoosejs.com/docs/validation.html).
+Mongoose validation catches missing required fields, blank required text after trimming, and unsupported status values before a normal save. This helps keep records consistent; it does not replace request validation. `unique: true` declares a MongoDB index rather than a Mongoose validator: `validate()` cannot detect duplicate stored IDs. The create controller waits for index initialization and converts MongoDB duplicate-key code 11000 to a safe 409 response. MongoDB enforces uniqueness even for concurrent requests, without a race-prone pre-check. See the [Mongoose validation guide](https://mongoosejs.com/docs/validation.html) and [Model.init documentation](https://mongoosejs.com/docs/api/model.html#Model.init()).
 
 `server/test/agent.test.js` builds sample documents and calls `validate()` in memory. `validAgent()` supplies readable test data; `assert.rejects()` checks that invalid documents fail. The tests also inspect timestamp and index definitions. They import neither environment configuration nor startup code and require no live database or credentials.
 
@@ -178,7 +188,10 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/.env.example` is the shareable backend template; the local `.env` copy is ignored by Git.
 - `server/src/config/env.js` loads the file, then uses a Zod schema to describe allowed configuration. `safeParse()` returns validated data or validation issues. The port schema checks decimal text, converts it with `Number`, and enforces the TCP range. MongoDB URI syntax is required and checked by constructing a driver client without opening it. Optional Redis blanks normalize to `undefined`. Invalid configuration throws a readable error before the server can listen. The module exports only the validated `env` object.
 - `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
-- `server/src/app.js` creates and exports the Express application without opening a network port. Middleware functions process requests in order: `express.json()`, the existing health route, the unchanged JSON 404 fallback, and the imported `errorHandler` last. The existing final handler was extracted rather than duplicated. No new production route was added in Step 6.
+- `server/src/app.js` creates and exports the Express application without opening a network port. Middleware runs in order: `express.json()`, health, the `/api/agents` router, the unchanged JSON 404 fallback, and the existing `errorHandler` last.
+- `server/src/routes/agentRoutes.js` defines only `POST /`; mounting it under `/api/agents` produces `POST /api/agents`. It runs the existing `validateRequest()` before the controller.
+- `server/src/validation/agentSchemas.js` defines the strict Zod request schema. Required strings must be nonblank; email is trimmed, lowercased, and checked for valid syntax. Status is optional with only `active` or `inactive` allowed. Extra keys are rejected.
+- `server/src/controllers/agentController.js` exports `createAgent()`. It waits for model/index initialization, saves only `request.validated.body` using `Agent.create()`, then returns 201 with explicitly selected public fields. It forwards duplicate errors as `ApiError(409, ...)` and all other errors to the existing central handler.
 - `server/src/middleware/validateRequest.js` exports `validateRequest(schema, section)`. It checks a request section against a supplied Zod schema and passes failures to the shared error handler. Parsed data goes into `request.validated[section]` for route handlers to use.
 - `server/src/middleware/errorHandler.js` is the sole final API error handler. It formats Zod/request validation errors, parser errors, and expected application errors; hides unexpected internal details; and delegates with `next(error)` if a response has already started.
 - `server/src/utils/ApiError.js` defines `ApiError` for developer-controlled public application errors and `RequestValidationError` for internal Zod issues with their request-section label. Neither class writes an HTTP response; the central handler owns that job.
@@ -187,6 +200,8 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/test/env.test.js` uses Node's built-in test runner and separate child processes to check configuration in isolation. `createFixture()` copies the real loader into a disposable folder; `runConfig()` starts it with controlled environment variables. Tests never overwrite the developer's real `.env`, and disposable files are removed after each test.
 - `server/test/db.test.js` mocks Mongoose connection methods to verify success, failure propagation, reuse, and safe logs. `server/test/startup.test.js` checks database-before-HTTP ordering, real HTTP responses with mocked database readiness, failure cleanup, cancellation, occupied ports, and repeatable shutdown.
 - `server/test/request-errors.test.js` uses isolated Express apps with test-only routes to exercise validation and error responses over HTTP. It also checks the already-sent-response guard directly. No test routes are added to the production app.
+- `server/test/create-agent.test.js` exercises the production app over HTTP while mocking `Agent.init()` and `Agent.create()`. The mock creates and validates real in-memory Agent documents, but supplies simulated persistence timestamps; it does not prove storage.
+- `server/scripts/verify-create-agent.js` is a separate, opt-in Atlas integration check. It redirects model calls to a clone of the same schema in a randomly named disposable collection, performs real writes and direct database reads, checks a duplicate, removes that collection, and closes connections. It does not insert into the normal agents collection and is not run by `npm test`.
 
 The error middleware uses Express's four-parameter convention and runs last, as described in the [official Express error-handling guide](https://expressjs.com/en/guide/error-handling/). Node's [watch-mode documentation](https://nodejs.org/api/cli.html#--watch) explains the development runner.
 
@@ -218,6 +233,69 @@ An unknown route, such as `GET /api/unknown`, returns HTTP **404** with:
 
 Other errors use the same `success: false` and `message` fields. Malformed JSON returns `Invalid JSON request body` (400); a body exceeding the JSON parser's default 100 KB limit returns `Request body is too large` (413); unexpected failures return `Internal server error` (500). These existing responses are preserved.
 
+## Create a delivery agent
+
+**`POST /api/agents`**, with `Content-Type: application/json`:
+
+```json
+{
+  "agentId": "AGENT-001",
+  "fullName": "Alex Morgan",
+  "phone": "+1 202-555-0142",
+  "email": "alex@example.com",
+  "serviceArea": "Central"
+}
+```
+
+All five fields above are required strings. Leading/trailing whitespace is removed and blank strings are rejected. Email must have valid syntax and is saved lowercase. `status` is optional; when absent, the existing Mongoose model supplies `active`. Explicit status accepts only `active` or `inactive` after trimming. Nulls, numbers, objects in string fields, invalid status/email values, and unexpected keys are rejected. In particular, callers cannot set `_id`, `id`, `createdAt`, `updatedAt`, or `__v`. The request must be an object, not an array.
+
+The business `agentId` is required from the caller, as requested for Step 7. The generated database identifier uses Mongoose's built-in ObjectId behavior rather than a counter or custom ID generator.
+
+Successful creation returns **201 Created**, for example (ID and timestamps are illustrative):
+
+```json
+{
+  "success": true,
+  "message": "Agent created successfully",
+  "data": {
+    "id": "68f2d0000000000000000001",
+    "agentId": "AGENT-001",
+    "fullName": "Alex Morgan",
+    "phone": "+1 202-555-0142",
+    "email": "alex@example.com",
+    "serviceArea": "Central",
+    "status": "active",
+    "createdAt": "2026-10-18T00:00:00.000Z",
+    "updatedAt": "2026-10-18T00:00:00.000Z"
+  }
+}
+```
+
+Only these public fields are returned; Mongoose internals such as `__v` are omitted. An invalid email, for example, returns **400** using the existing format:
+
+```json
+{
+  "success": false,
+  "message": "Request validation failed",
+  "details": [
+    { "section": "body", "field": "email", "message": "Invalid format" }
+  ]
+}
+```
+
+An unexpected key is reported at `(root)` with `Unexpected fields`. A duplicate trimmed `agentId` returns **409** without echoing database details:
+
+```json
+{
+  "success": false,
+  "message": "An agent with this agentId already exists"
+}
+```
+
+Unexpected persistence or index-initialization errors use the existing generic **500** response. Phone/email are not unique. GET, PATCH, and DELETE operations for agents remain unimplemented and return 404.
+
+Run `node --test test/create-agent.test.js` inside `server/` for the isolated route tests. To separately verify real persistence using private local configuration, run `node scripts/verify-create-agent.js`. It requires Atlas read/write/index/drop permissions for its disposable collection. The script creates one test document, verifies it directly from MongoDB, confirms duplicate rejection, then drops only its owned `fleetflow_step7_check_` collection. A forced timeout or cleanup error is reported; check for a leftover collection with that prefix in that case. The normal model may also initialize its collection/indexes through the usual startup flow, but integration test records go only into the disposable collection.
+
 ## Request validation and centralized errors
 
 `validateRequest(schema, section = 'body')` supports `body`, `params`, and `query`. Add it before a future route handler and read `request.validated.body`, `.params`, or `.query` in that handler. For example, `validateRequest(z.object({ label: z.string().trim().min(1) }), 'body')` validates a body with a nonblank label. This is a usage example, not an implemented endpoint. Chain middleware calls to validate several sections; each keeps the other parsed sections intact. Handlers should use parsed data instead of assuming the original request data was transformed.
@@ -244,7 +322,7 @@ Zod validation failures return HTTP 400 with this structure:
 
 For an expected application failure, future route code may throw `new ApiError(409, 'Requested operation conflicts with current state')`. Status must be an integer from 400 to 599. Messages for 4xx errors are public text: write a fixed, safe explanation rather than copying request values or driver errors. Expected 5xx application errors retain their status but use the generic `Internal server error` message. Ordinary unexpected errors always become 500, even if they carry `statusCode` or `expose` properties. Server failures log a fixed message without the raw error.
 
-All responses retain the `success: false` / `message` envelope; only request-validation failures add `details`. After headers have been sent, the handler forwards the original error to Express without attempting another response. Database/startup failures remain in the existing startup code, outside this HTTP handler. Route-specific Agent schemas and database-error mappings belong to the later CRUD steps; neither live database behavior nor new endpoints are introduced here.
+Error responses retain the `success: false` / `message` envelope; only request-validation failures add `details`. After headers have been sent, the handler forwards the original error to Express without attempting another response. Database/startup failures remain in the existing startup code, outside this HTTP handler. The create route now supplies its schema and duplicate-key mapping, while reusing these shared components unchanged.
 
 ## Step 2 verification
 
@@ -324,8 +402,27 @@ Actual commands run inside `server/` on October 18, 2026:
 
 New tests cover valid/invalid body data, chained params and query validation, async schemas, raw Zod errors, application error status codes, safe unexpected 500 responses, hidden 5xx details, and already-started-response delegation. Existing startup tests continue verifying health 200, unknown-route 404, malformed JSON 400, oversized JSON 413, and database-startup failures. No live database or Redis was used, no dependencies were added, and `server/.env` was not read or changed. Step 6 acceptance criteria passed; no known blocker remains.
 
-After review, the suggested Step 6 commit message for you to execute is:
+## Step 7 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/create-agent.test.js` | 8 focused tests passed with model initialization/writes mocked |
+| `npm test` | All 40 tests passed, including all 32 previous tests; no live database required |
+| `node --check src/app.js` | Passed |
+| `node --check src/controllers/agentController.js` | Passed |
+| `node --check src/routes/agentRoutes.js` | Passed |
+| `node --check src/validation/agentSchemas.js` | Passed |
+| `node --check test/create-agent.test.js` | Passed |
+| `node --check scripts/verify-create-agent.js` | Passed |
+| `node scripts/verify-create-agent.js` | Real Atlas gated startup, health 200, create 201, direct stored-document/timestamp checks, and duplicate 409 all passed; disposable collection removed and connections closed |
+| `npm start`, then native fetch/assert through `node --input-type=module -e` | Existing MongoDB-gated startup succeeded; health returned exact JSON with 200; Ctrl+C closed Mongoose afterward |
+
+The route tests verify normalization, the model's default status, safe generated database IDs, rejection of missing/invalid/extra data, index readiness, duplicate conflicts, safe unexpected errors, and preserved health/404 behavior. The opt-in check used real Mongoose persistence against an isolated collection by redirecting model methods; it did not test writes into the normal agents collection. Existing regression tests also passed for malformed JSON, oversized bodies, and database startup failures. No dependencies were added, no private configuration was printed or modified, and no commit was created. Step 7 acceptance criteria passed; no known blocker remains.
+
+After review, the suggested Step 7 commit message for you to execute is:
 
 ```text
-feat: add request validation and API errors
+feat: add create agent API
 ```

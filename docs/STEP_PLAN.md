@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-6 are **COMPLETE** after verification; Steps 7-30 remain **PENDING**. Steps 1-5 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, and `4fa2766`. Step 6 validation/error checks and all 32 automated tests passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-7 are **COMPLETE** after verification; Steps 8-30 remain **PENDING**. Steps 1-6 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, and `772929d`. Step 7 create-agent checks, all 40 automated tests, isolated Atlas persistence, and real startup passed; its changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -61,7 +61,7 @@ Commit: feat: add request validation and API errors
 ## Phase 2: CRUD API
 
 ### Step 7 — Create agent API
-Status: PENDING
+Status: COMPLETE
 
 Objective: Implement POST /api/agents.
 
