@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-11 are **COMPLETE** after verification; Steps 12-30 remain **PENDING**. Steps 1-10 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, and `7e699d9`. Step 11's 5 focused delete tests and all 69 server tests passed without a live database. Deletion database calls were mocked; live persistence was not integration-tested. Step 11 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-12 are **COMPLETE** after verification; Steps 13-30 remain **PENDING**. Steps 1-11 were committed as `0f170dc`, `e5ad3ec`, `ee4870c`, `9e814f5`, `4fa2766`, `772929d`, `d516a14`, `e50b52d`, `31671be`, `7e699d9`, and `a40ea0e`. Step 12's 2 new tests and all 71 server tests passed. Automated HTTP integration covers all five endpoints with mocked database operations. An optional isolated MongoDB CRUD script was added; its configuration guard and syntax passed, but live execution was not performed. Step 12 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -106,7 +106,7 @@ Acceptance criteria: Existing records are deleted with 204 No Content; missing r
 Commit: feat: implement agent deletion endpoint
 
 ### Step 12 — Verify CRUD APIs
-Status: PENDING
+Status: COMPLETE
 
 Objective: Test all five endpoints using Postman and/or automated integration tests.
 

@@ -16,11 +16,12 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 8 is COMPLETE and committed locally as `e50b52d` (`feat: add paginated agent list API`).
 - Step 9 is COMPLETE and committed locally as `31671be` (`feat: add get agent by ID API`).
 - Step 10 is COMPLETE and committed locally as `7e699d9` (`feat: add update agent API`).
-- Step 11 is COMPLETE after all 5 delete tests and all 69 server tests passed. Its changes remain uncommitted for review.
-- Steps 12-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 11 is COMPLETE and committed locally as `a40ea0e` (`feat: add delete agent API`).
+- Step 12 is COMPLETE after its 2 new tests and all 71 server tests passed. Changes remain uncommitted for review; the optional live MongoDB script has not been run.
+- Steps 13-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, and Mongoose are the direct dependencies. The development script uses Node's built-in watch mode.
-- `client/` remains empty. The five agent API operations are implemented; there is no authentication or Redis connection. Step 12's broader CRUD verification remains pending.
+- `client/` remains empty. The five agent API operations are implemented; there is no authentication or Redis connection. Normal tests use mocked database operations; live CRUD persistence has not been checked in Step 12.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional until Step 13.
 
 ## Planned technology stack
@@ -92,10 +93,15 @@ FleetFlow/
 |       |-- get-agent.test.js       Mocked single-agent lookup tests
 |       |-- update-agent.test.js    Partial updates and Mongoose query middleware
 |       |-- delete-agent.test.js    Mocked targeted deletion and error responses
+|       |-- crud-flow.test.js       Connected lifecycle with a fresh mocked store
+|       |-- integration-script.test.js  Optional-script configuration guard
 |       |-- request-errors.test.js  Request middleware and safe error responses
 |       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
+|   |-- test-support/
+|   |   `-- crudFlow.js      HTTP assertions shared by mocked and optional real checks
 |   `-- scripts/
-|       `-- verify-create-agent.js  Opt-in real Atlas persistence check
+|       |-- verify-create-agent.js  Earlier opt-in create persistence check
+|       `-- verify-crud.js   Opt-in full CRUD check; process configuration only
 |-- docs/
 |   |-- DEVELOPMENT_RULES.md Permanent development rules
 |   `-- STEP_PLAN.md         Roadmap and acceptance criteria
@@ -214,6 +220,10 @@ If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` i
 - `server/test/get-agent.test.js` mocks `Agent.findById()` while exercising the production detail route over HTTP. It verifies the exact targeted ID, projection, public response fields, malformed ID rejection, uppercase hex handling, missing records, and safe unexpected errors. It also ensures the lookup does not call `Agent.find()` to fetch the list.
 - `server/test/update-agent.test.js` exercises PATCH over HTTP with mocked model updates, checks the targeted query and supplied fields, and tests normalization and errors. One additional test executes real Mongoose query middleware with a mocked collection method to verify timestamps and update validation. It never opens a database connection or proves persistence.
 - `server/test/delete-agent.test.js` uses real HTTP routing and middleware with a mocked `Agent.findByIdAndDelete()` query. It verifies the targeted ID, projection, empty 204 response, malformed/uppercase IDs, missing records, safe 500 errors, and that neither a full-list query nor bulk deletion is used. No stored records are deleted by these tests.
+- `server/test/crud-flow.test.js` runs all five endpoints against one fresh, test-local mocked store with deterministic IDs/timestamps. It checks how changes affect later requests. It does not reimplement MongoDB search/filter behavior; the existing list tests continue checking that query contract separately.
+- `server/test-support/crudFlow.js` contains shared HTTP assertions, including readback after updates, no changes after rejected writes, an unrelated record surviving deletion, and missing-record responses after deletion. Both the normal lifecycle test and optional real integration script run these same assertions.
+- `server/test/integration-script.test.js` starts the new script without its explicit test URI and verifies that it stops with a clear message. It does not start MongoDB or read private configuration.
+- `server/scripts/verify-crud.js` is an optional real MongoDB check using a separate connection and a randomly named disposable collection. It redirects all model calls used by the five endpoints to that isolated model, restores the original methods, and cleans up. It reads only `FLEETFLOW_TEST_MONGODB_URI` from the process environment and never imports the `.env` loader.
 - `server/scripts/verify-create-agent.js` is a separate, opt-in Atlas integration check. It redirects model calls to a clone of the same schema in a randomly named disposable collection, performs real writes and direct database reads, checks a duplicate, removes that collection, and closes connections. It does not insert into the normal agents collection and is not run by `npm test`.
 
 The error middleware uses Express's four-parameter convention and runs last, as described in the [official Express error-handling guide](https://expressjs.com/en/guide/error-handling/). Node's [watch-mode documentation](https://nodejs.org/api/cli.html#--watch) explains the development runner.
@@ -500,6 +510,48 @@ A later request to delete an already deleted record returns 404 when MongoDB rep
 
 Run `node --test test/delete-agent.test.js` inside `server/` for focused checks, or `npm test` for all server regressions. Database deletion is mocked: these tests verify HTTP behavior and query construction, not live persistence. No Atlas integration script is run, and private environment configuration is not read or changed.
 
+## Test organization and coverage audit
+
+Run these commands inside `server/`:
+
+```powershell
+npm test
+# Only the new Step 12 checks:
+node --test test/crud-flow.test.js test/integration-script.test.js
+# All five endpoint suites plus the connected lifecycle:
+node --test test/create-agent.test.js test/list-agents.test.js test/get-agent.test.js test/update-agent.test.js test/delete-agent.test.js test/crud-flow.test.js
+```
+
+The suite uses Node's built-in test runner, assertions, test-scoped mocks, and native fetch. HTTP tests listen on an available loopback port and close their servers afterward. Each lifecycle test owns its records and deterministic clock; no test depends on data or execution order from another test. No new test dependency is needed. `npm test` does not require Atlas, Redis, external network access, or private `.env` configuration. Environment-loader tests use disposable fake files, not `server/.env`.
+
+The Step 12 audit preserved existing focused tests and added checks for interactions across requests:
+
+| Coverage | Test files and evidence |
+| --- | --- |
+| Create success/defaults/normalization, required fields, invalid bodies, duplicate 409, safe 500 | `create-agent.test.js`; schema rules in `agent.test.js` |
+| List pagination/defaults/maximum, search escaping, combined filters, empty/out-of-range pages, query errors | `list-agents.test.js` asserts MongoDB filters, sorting, projection, skip/limit, and count calls |
+| Single-agent success, malformed/uppercase IDs, valid missing IDs, targeted lookup, safe 500 | `get-agent.test.js` |
+| Partial update, normalization, omitted fields, immutable fields, empty/invalid bodies, 404/409/500 | `update-agent.test.js`, including real Mongoose timestamp/validation middleware against a mocked collection |
+| Delete 204 with empty body, invalid/missing IDs, targeted operation, safe 500 | `delete-agent.test.js` |
+| Health/unknown routes, JSON parser 400/413, central error handling, configuration/startup failures | `create-agent.test.js`, `request-errors.test.js`, `env.test.js`, `db.test.js`, `startup.test.js` |
+| Connected create/list/detail/update/delete flow; failed writes leave records unchanged; update readback; surviving unrelated record; GET/PATCH/repeated DELETE return 404 after deletion | New `crud-flow.test.js`, using `test-support/crudFlow.js` |
+| Optional integration script refuses missing explicit configuration | New `integration-script.test.js` |
+
+These HTTP tests integrate the actual app, routes, validation, controllers, model formatting, and error middleware with mocked database operations. The lifecycle mock simulates duplicate rejection and storage; it does not establish that a real database enforces unique indexes or persists changes. Search/filter/pagination tests inspect query construction, rather than running MongoDB's query engine. No production API behavior was changed for Step 12.
+
+### Optional real MongoDB CRUD check
+
+Use a MongoDB test database with permission to create/read/write/index/drop a disposable collection. Configure `FLEETFLOW_TEST_MONGODB_URI` privately in the process environment through your local shell or secret manager. The script does not read `server/.env`, does not fall back to `MONGODB_URI`, and stops before connecting when its explicit variable is missing. Do not put credentials in tracked files, command examples, or chat.
+
+```powershell
+# Configure FLEETFLOW_TEST_MONGODB_URI privately before running this command.
+node scripts/verify-crud.js
+```
+
+The script connects before opening its loopback HTTP listener, then runs the shared CRUD flow through the real app and Mongoose against a uniquely named `fleetflow_step12_check_` collection. The separate connection/model prevents initializing or writing the normal agents collection. This checks real create/list/detail/update/delete behavior, normalization, duplicate rejection, invalid-write protection, update readback, empty lists, and missing records after deletion. It does not add live search/filter/pagination coverage or replace the existing startup tests.
+
+The script drops only its own randomly named collection and closes the server and connection in cleanup. A 45-second deadline stops a hung run. Forced termination or failed cleanup may leave that collection behind; the script reports its name for private inspection. Driver errors and raw assertion details are hidden. The script is separate from `npm test` and has **not been run against a live database in Step 12**; only its no-configuration guard and syntax were checked. The older Step 7 create script remains available and loads local configuration when explicitly invoked; it was not run in this step.
+
 ## Request validation and centralized errors
 
 `validateRequest(schema, section = 'body')` supports `body`, `params`, and `query`. Add it before a future route handler and read `request.validated.body`, `.params`, or `.query` in that handler. For example, `validateRequest(z.object({ label: z.string().trim().min(1) }), 'body')` validates a body with a nonblank label. This is a usage example, not an implemented endpoint. Chain middleware calls to validate several sections; each keeps the other parsed sections intact. Handlers should use parsed data instead of assuming the original request data was transformed.
@@ -689,8 +741,23 @@ Actual commands run inside `server/` on October 18, 2026:
 
 `git diff --check` from the root also passed. The previous test that expected DELETE to be unimplemented now checks unknown nested DELETE paths and the absent-ID path. All deletion database calls were mocked; no live MongoDB persistence check was performed. No dependencies were added, `server/.env` was not read or changed, and nothing was staged or committed. Step 11 acceptance criteria passed; no known blocker remains. Step 12 and later steps remain pending.
 
-After review, the suggested Step 11 commit message for you to execute is:
+## Step 12 verification
+
+Actual commands run inside `server/` on October 18, 2026:
+
+| Command | Actual result |
+| --- | --- |
+| `node --test test/crud-flow.test.js test/integration-script.test.js` | First run: 1 passed, 1 failed because the new mock cloned an ObjectId without its prototype. The mock now stores plain string IDs; rerun: both tests passed. No production code change was needed. |
+| `npm test` | All 71 tests passed, including all 69 existing tests |
+| `node --check test-support/crudFlow.js` | Passed |
+| `node --check test/crud-flow.test.js` | Passed |
+| `node --check test/integration-script.test.js` | Passed |
+| `node --check scripts/verify-crud.js` | Passed |
+
+`git diff --check` from the repository root also passed. The existing coverage audit and the new shared lifecycle verify successful requests, validation failures, duplicates, and missing records across all five endpoints. Database operations in the normal suite are mocked; the optional script's configuration guard was tested without connecting, but its live MongoDB execution/cleanup remains unverified. No private `.env` was read or changed. No dependencies or API behavior changed, and nothing was staged or committed. Step 12 acceptance criteria passed using automated HTTP integration with mocked database operations. Steps 13-30 remain pending.
+
+After review, the suggested Step 12 commit message for you to execute is:
 
 ```text
-feat: add delete agent API
+test: strengthen CRUD API coverage
 ```
