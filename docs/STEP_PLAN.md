@@ -1,11 +1,11 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Every step is initially marked **PENDING**, including Step 1 while its foundation changes await review. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1 and 2 are **COMPLETE** after verification; Steps 3-30 remain **PENDING**. Step 1 was committed as `0f170dc`. Step 2 changes await review and have not been committed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
 ### Step 1 — Initialize project structure
-Status: PENDING
+Status: COMPLETE
 
 Objective: Create the repository structure, .gitignore, README.md, .env.example, docs/DEVELOPMENT_RULES.md, and docs/STEP_PLAN.md.
 
@@ -14,7 +14,7 @@ Acceptance criteria: Clean structure, safe environment placeholders, permanent d
 Commit: chore: initialize FleetFlow project structure
 
 ### Step 2 — Configure Express backend
-Status: PENDING
+Status: COMPLETE
 
 Objective: Set up the Express application, server entry point, health-check endpoint, and basic error handling.
 
