@@ -1,6 +1,405 @@
 # FleetFlow
 
-FleetFlow is a planned Delivery Agent Management System for creating, viewing, updating, and deleting delivery agent records through a dashboard backed by an API.
+FleetFlow manages delivery-agent records through a React dashboard and an Express API. It supports agent registration, searching, filtering, pagination, details, partial editing, and confirmed deletion. Dashboard totals and recent registrations come from the API; there is no bundled demo dataset or automatic seed command.
+
+This is an evaluation project with automated coverage, not a claim of production readiness. There is no authentication or authorization. A running application requires reachable MongoDB; Redis is optional. Live persistence/cache checks and deployed-browser acceptance remain outstanding.
+
+## Guide
+
+- [Features and status](#features-and-status)
+- [Architecture and project layout](#architecture-and-project-layout)
+- [Prerequisites and local setup](#prerequisites-and-local-setup)
+- [Environment variables](#environment-variables)
+- [API reference](#api-reference)
+- [Redis caching and consistency](#redis-caching-and-consistency)
+- [Tests and production build](#tests-and-production-build)
+- [Deployment configuration](#deployment-configuration)
+- [Troubleshooting and limitations](#troubleshooting-and-limitations)
+- [Step 28 documentation verification](#step-28-documentation-verification)
+- [Historical development record](#historical-development-record)
+
+## Features and status
+
+| Area | Implemented behavior |
+| --- | --- |
+| Overview (`/`) | Total, active, and inactive counts across all registered records; five most recent registrations. Three list requests supply these values; there is no separate overview endpoint. |
+| Agents (`/agents`) | Backend search, exact status/service-area filters, pagination, and View/Edit/Delete actions. Search covers business ID, name, phone, email, and service area. |
+| Create | Required-field, phone, email, and status feedback; successful creation clears filters and returns to the first page to reload records. |
+| Details and edit | `/agents/:id` and `/agents/:id/edit` use the database record ID. Editing prefills values and sends only changed editable fields; business ID is read-only. |
+| Delete | Confirmation from the list or detail page. List deletion reloads the applied query; detail deletion returns to Agents. An emptied later page offers recovery to page one. |
+| Request feedback | Initial loading, empty success, missing agents, safe errors, and manual retry/refresh. Same-query refreshes retain labelled prior data; changed filters/pages clear mismatched rows. |
+| Request safety | Read cancellation and stale-response protection; retained failed create/edit drafts; guarded duplicate submissions. Mutations are never automatically retried. A lost response can mean a write succeeded, so check the record before resubmitting. |
+| Responsive shell | Shared navigation, mobile menu, keyboard focus styles, horizontal table scrolling, and a native modal deletion dialog. Current interactive/browser acceptance is not covered by ordinary Node tests. |
+
+| Roadmap steps | Status and evidence |
+| --- | --- |
+| 1–24 | COMPLETE; historical evidence is retained below. |
+| 25 | **PENDING**. Automated frontend-to-Express integration passes with mocked storage and Redis enabled/unavailable. Live MongoDB/Redis persistence and deployed-browser verification remain pending. |
+| 26–27 | COMPLETE. Feedback and automated coverage are implemented; Step 27 records 136 backend and 107 frontend tests passing. |
+| 28 | **COMPLETE**. Evaluator guide checked against source, examples/links audited, full test suites and production build rerun. |
+| 29–30 | **PENDING**; final verification/submission work has not begun. |
+
+The [step plan](docs/STEP_PLAN.md) is the authoritative roadmap. Before changing the project, follow [the development rules](docs/DEVELOPMENT_RULES.md). Historical sections retain the statuses and limitations recorded at that time; this guide describes the current implementation.
+
+## Architecture and project layout
+
+The frontend uses React, Vite, Tailwind CSS, React Router, Axios, and Lucide icons. The backend uses Node.js, Express, Zod, Mongoose/MongoDB, dotenv, and node-redis. Exact dependency versions are resolved by each package's lockfile.
+
+```mermaid
+flowchart LR
+    UI["React dashboard and Axios"] -->|Local requests| Vite["Vite dev or preview proxy"]
+    UI -->|Deployed requests| Vercel["Vercel API rewrite"]
+    Vite --> API["Express API on Node.js"]
+    Vercel -->|Render backend| API
+    API --> Mongo["MongoDB via Mongoose"]
+    API <--> Redis["Optional Redis cache"]
+```
+
+The shared client [api.js](client/src/lib/api.js) defaults to `/api` with a 10-second timeout. Services append `/agents` or `/agents/:id`. Development/preview forwards `/api` unchanged to the configured backend; Vercel uses its ordered API rewrite in production. Express validates requests before controller access. Cache misses and unavailable-cache reads use MongoDB. Successful mutations write MongoDB first, then attempt cache invalidation.
+
+MongoDB holds one document per agent, addressed by an ObjectId. The Mongoose schema defines required fields, timestamps, and a unique business-ID index. List queries filter/search documents, count matches separately, and sort by `createdAt` descending with `_id` descending as a stable tie-breaker. No relational joins or database fallback when MongoDB is unavailable are implemented.
+
+```text
+client/
+  package.json, package-lock.json    Frontend scripts and pinned dependencies
+  .env.example                      Public client/proxy configuration
+  vite.config.js, vercel.json        Development/preview proxy and production rewrites
+  src/pages/                        Overview, list, detail/edit route lifecycles
+  src/components/                   Layout, forms, table, details, feedback/dialog
+  src/services/, src/lib/            Axios mapping and safe read error categories
+  src/state/, src/validation/        Request/mutation state and form rules
+  test/                             Rendering, lifecycle, proxy/Express checks
+server/
+  package.json, package-lock.json    Backend scripts and pinned dependencies
+  .env.example                      Private server configuration template
+  src/app.js, src/server.js          Express application and entry point
+  src/startup.js, src/config/        MongoDB gating, Redis, validated settings
+  src/routes/, src/controllers/     Five agent routes and handlers
+  src/models/, src/validation/       Agent schema and API/phone/cache validation
+  src/middleware/, src/utils/        Parsed validation and safe JSON errors
+  src/services/                     List/detail caches and generation invalidation
+  test/, test-support/               Tests, isolated storage and Redis helpers
+  scripts/                          Opt-in live verification, separate from tests
+docs/
+  DEVELOPMENT_RULES.md, STEP_PLAN.md Development constraints and roadmap
+```
+
+## Prerequisites and local setup
+
+Use **Node.js 24 or newer** and npm; both packages declare `node >=24`. Git is needed to clone the repository. Install dependencies in both packages, including for frontend tests: the frontend integration suite imports the backend app. There is no root `package.json` or root npm start command.
+
+Provide reachable MongoDB (Atlas or a locally managed server) and a database URI. For Atlas, configure a database user with read/write/index permissions and allow the backend machine's network access. Include the intended database name in the URI and encode reserved characters in credentials. URI syntax validation does not verify credentials/connectivity. `npm ci` installs neither a MongoDB nor a Redis service.
+
+### Install and configure
+
+From a fresh checkout, run in PowerShell:
+
+```powershell
+git clone https://github.com/NatanshKhurana/FleetFlow.git
+cd FleetFlow
+npm ci --prefix server
+npm ci --prefix client
+if (-not (Test-Path server/.env)) { Copy-Item server/.env.example server/.env }
+if (-not (Test-Path client/.env)) { Copy-Item client/.env.example client/.env }
+```
+
+For an existing checkout, start in its root and run the last four commands. The copy commands preserve existing local files. Privately replace the new server configuration's MongoDB placeholder before starting the API. The client example already uses `/api` and a port-5000 proxy target. Leave Redis blank to run without caching, or configure a private Redis URL. Never commit private environment files or put server credentials in browser variables.
+
+Use the package templates: [server/.env.example](server/.env.example) and [client/.env.example](client/.env.example). The [root .env.example](.env.example) is a legacy planning template: neither package loads a root environment file in these commands, and `CLIENT_ORIGIN` is not read by the implementation. It does not configure CORS. Step 28 does not change any example file.
+
+### Terminal 1: backend
+
+From the repository root:
+
+```powershell
+cd server
+npm start
+```
+
+Alternatively, `npm run dev` uses Node's source watch mode. `PORT` is required; **5000 is the example value, not a backend hardcoded default**. With that value, the API is at `http://localhost:5000/api`. MongoDB must connect before HTTP starts. Configured Redis connection failure is nonfatal and bounded; startup continues without caching. Stop with Ctrl+C.
+
+After startup, check HTTP health from another terminal:
+
+```powershell
+Invoke-RestMethod -Uri 'http://localhost:5000/api/health'
+```
+
+`GET /api/health` returns `200` and `{"success":true,"message":"FleetFlow API is running"}`. It is a basic HTTP health endpoint, not a fresh database/Redis probe on every request.
+
+### Terminal 2: frontend
+
+From a separate terminal in the repository root:
+
+```powershell
+cd client
+npm run dev
+```
+
+Open Vite's printed URL, normally `http://localhost:5173`; an occupied port can cause another port to be selected. `/api` requests go through Vite to `http://localhost:5000` by default, avoiding cross-origin browser requests. The shell can render without the API, but agent data cannot load. There is no login or automatic sample-data creation; use **Add new agent** or the API examples against an evaluation database. Stop with Ctrl+C.
+
+For another backend port, update its `PORT` and the client's public `API_PROXY_TARGET` to the same origin, then restart both processes. Process variables override server file values. Restart the API after environment edits; source watch mode does not guarantee environment reload. Vite configuration changes require a restart, and browser environment changes require a new production build.
+
+## Environment variables
+
+These are the application-specific variables actually read by source code or the opt-in scripts. Supply private values through server file/process configuration or deployment secret settings; the examples below are deliberately non-sensitive.
+
+| Variable | Component | Required? | Purpose and safe format/example |
+| --- | --- | --- | --- |
+| `PORT` | Backend `src/config/env.js` | Yes | Decimal TCP port 1–65535; example `5000`. No missing/blank fallback. Render may supply this process variable. |
+| `MONGODB_URI` | Backend `src/config/env.js` | Yes | Driver-parseable MongoDB URI; local example `mongodb://127.0.0.1:27017/fleetflow`. `mongodb+srv://` is also supported. Hosted credentials stay private. |
+| `REDIS_URL` | Backend configuration/Redis manager | Optional | Missing/blank disables Redis. Expected `redis://` or TLS `rediss://`; local example `redis://127.0.0.1:6379/0`. Malformed/unreachable values fall back without blocking startup. |
+| `AGENT_LIST_CACHE_TTL_SECONDS` | Backend configuration and both caches | Optional | Default `60` when absent. Supplied text must be a positive decimal integer 1–86400 without leading zeros; blank is invalid. Applies to new list/detail entries, despite its existing list-specific name. |
+| `VITE_API_BASE_URL` | Browser Axios client at build/dev time | Optional | Trimmed value; missing/blank defaults to `/api`. Keep `/api` for the supplied proxies/rewrites. Every `VITE_*` browser value is public. |
+| `API_PROXY_TARGET` | Vite dev/preview configuration | Optional | Default `http://localhost:5000`. Public backend origin without `/api` suffix or credentials; not used by static assets or deployed Vercel rewrites. |
+| `FLEETFLOW_TEST_MONGODB_URI` | `server/scripts/verify-crud.js` | Only for that opt-in script | Privately supplied process variable, same URI format as `MONGODB_URI`. No `.env` loading or fallback to application configuration. |
+| `FLEETFLOW_TEST_REDIS_URL` | `server/scripts/verify-redis.js`, `verify-cache.js` | Only for those opt-in scripts | Privately supplied process variable, same Redis URL format as above. No `.env` loading or fallback to `REDIS_URL`. |
+
+The backend explicitly resolves its own environment file relative to `src/config/env.js`, independent of launch directory. An absent file is allowed when process variables supply required values; an unreadable file fails startup. It validates before connecting/listening, prints fixed messages rather than supplied values, and passes the TTL through `app.locals`. Client configuration never loads the backend's private file.
+
+## API reference
+
+All API endpoints are under `/api`. Source: [app.js](server/src/app.js), [agentRoutes.js](server/src/routes/agentRoutes.js), [agentController.js](server/src/controllers/agentController.js), and [agentSchemas.js](server/src/validation/agentSchemas.js). No authentication, overview, login, bulk-delete, or PUT endpoint exists.
+
+| Method | Path | Input | Successful result |
+| --- | --- | --- | --- |
+| GET | `/api/health` | None | `200`: `{success:true,message:"FleetFlow API is running"}` |
+| POST | `/api/agents` | JSON creation fields below | `201`: `{success:true,message:"Agent created successfully",data:agent}` |
+| GET | `/api/agents` | Optional query table below | `200`: `{success:true,message:"Agents retrieved successfully",data:agent[],pagination:{page,limit,total,totalPages}}` |
+| GET | `/api/agents/:id` | Database record ID | `200`: `{success:true,message:"Agent retrieved successfully",data:agent}` |
+| PATCH | `/api/agents/:id` | Record ID and one or more editable JSON fields | `200`: `{success:true,message:"Agent updated successfully",data:agent}` |
+| DELETE | `/api/agents/:id` | Database record ID | `204`: no body and no JSON to parse |
+
+Table shapes use `agent` as shorthand for the full public record below. `:id` accepts exactly 24 hexadecimal characters, including uppercase. It is **not** the business `agentId`. Responses expose `id`, `agentId`, `fullName`, `phone`, `email`, `serviceArea`, `status`, `createdAt`, and `updatedAt`; `_id`, `__v`, and other model metadata are omitted. JSON timestamps are ISO date-time strings; the UI displays them in UTC.
+
+### Body validation and agent fields
+
+| Field | Creation | PATCH | Rules |
+| --- | --- | --- | --- |
+| `agentId` | Required string | Not editable | Trimmed, nonblank, backed by the model's unique MongoDB index. No case-folding is applied. |
+| `fullName` | Required string | Editable | Trimmed, nonblank. |
+| `phone` | Required string | Editable | Trimmed; numeric syntax below. |
+| `email` | Required string | Editable | Trimmed, lowercased, validated by the HTTP Zod email rule. |
+| `serviceArea` | Required string | Editable | Trimmed, nonblank; no fixed area catalogue. |
+| `status` | Optional; defaults to `active` | Editable when supplied | Trimmed `active` or `inactive` only. |
+
+POST/PATCH use strict object schemas: unknown fields and database IDs/timestamps are rejected. PATCH requires at least one editable field, preserves omitted values, and never upserts a missing record. Only `agentId` has a unique index; phone/email may be shared. Index initialization is awaited before creation; credentials and permissions still determine whether real index creation succeeds.
+
+Phone syntax permits digits, an optional leading `+`, spaces, hyphens, dots, and balanced parentheses around digit groups. Examples: `123`, `+1 202-555-0142`, `(020)7946 0958`, and `+91 98765 43210`. Letters, punctuation-only values, misplaced plus signs, and unmatched parentheses fail. There is no country-specific digit count, extension syntax, reachability check, or migration of legacy records. Frontend create/edit, API schemas, and the model preserve this rule.
+
+### List query and overview
+
+| Parameter | Default | Behavior |
+| --- | --- | --- |
+| `page` | `1` | Positive decimal integer without leading zeros; requested page is returned even beyond the last page. |
+| `limit` | `10` | Positive decimal integer without leading zeros, maximum `100`. |
+| `search` | Omitted | Trimmed literal substring, case-insensitive across `agentId`, `fullName`, `phone`, `email`, and `serviceArea`; maximum 200 characters. Regex metacharacters are escaped. |
+| `status` | Omitted | Trimmed, exact `active` or `inactive`; supplied blank/unsupported values are invalid. |
+| `serviceArea` | Omitted | Trimmed, exact and case-sensitive match; blank is ignored. |
+
+Filters combine with search using AND. Blank search is ignored. Repeated/nested/unknown query keys and unsafe pagination offsets are rejected. No sort parameter is supported: descending `createdAt`, then descending `_id`, is fixed. `total` counts all matches, not just the page; `totalPages` is `ceil(total/limit)`, including zero for no matches. A valid page beyond the last returns `200` with an empty array and the requested page metadata.
+
+The overview calls this route three times: `page=1&limit=5` for total/recent, then `page=1&limit=1&status=active` and `status=inactive` for counts. It rejects malformed/inconsistent results rather than inventing totals. Separate reads/cached queries are not an atomic snapshot during concurrent changes; a manual retry can be needed.
+
+### Request and response examples
+
+This manual PowerShell example **writes to your configured database**. Use disposable evaluation data, with the backend on the example port. Repeating a business ID returns `409`; use a new ID or delete the earlier example.
+
+```powershell
+$agentPayload = @{
+  agentId = 'EVAL-001'
+  fullName = 'Alex Example'
+  phone = '+1 202-555-0142'
+  email = 'alex@example.com'
+  serviceArea = 'Central'
+} | ConvertTo-Json
+$createdAgent = Invoke-RestMethod -Method Post -Uri 'http://localhost:5000/api/agents' -ContentType 'application/json' -Body $agentPayload
+$agentRecordId = $createdAgent.data.id
+Invoke-RestMethod -Uri 'http://localhost:5000/api/agents?page=1&limit=10&search=Alex&status=active&serviceArea=Central'
+Invoke-RestMethod -Uri "http://localhost:5000/api/agents/$agentRecordId"
+Invoke-RestMethod -Method Patch -Uri "http://localhost:5000/api/agents/$agentRecordId" -ContentType 'application/json' -Body '{"status":"inactive"}'
+Invoke-RestMethod -Method Delete -Uri "http://localhost:5000/api/agents/$agentRecordId"
+```
+
+Representative `201` creation response (illustrative ID/timestamps, not an observed live record):
+
+```json
+{
+  "success": true,
+  "message": "Agent created successfully",
+  "data": {
+    "id": "000000000000000000000001",
+    "agentId": "EVAL-001",
+    "fullName": "Alex Example",
+    "phone": "+1 202-555-0142",
+    "email": "alex@example.com",
+    "serviceArea": "Central",
+    "status": "active",
+    "createdAt": "2026-10-19T00:00:00.000Z",
+    "updatedAt": "2026-10-19T00:00:00.000Z"
+  }
+}
+```
+
+A successful list with no matches is distinct from an API failure:
+
+```json
+{
+  "success": true,
+  "message": "Agents retrieved successfully",
+  "data": [],
+  "pagination": { "page": 1, "limit": 10, "total": 0, "totalPages": 0 }
+}
+```
+
+### Errors
+
+| HTTP status | Actual behavior |
+| --- | --- |
+| `400` | Invalid body/ID/query: `success:false`, `message:"Request validation failed"`, and safe `details` containing `section`, `field`, `message`. Malformed JSON instead returns `message:"Invalid JSON request body"` without `details`. |
+| `404` | Valid missing agent: `{success:false,message:"Agent not found"}`. Unmatched paths/methods: `{success:false,message:"Route not found"}`. |
+| `409` | Duplicate creation: `message:"An agent with this agentId already exists"`. Update duplicate-key errors: `message:"Agent update conflicts with an existing record"`; the schema defines no additional unique fields. Both include `success:false`. |
+| `413` | Oversized JSON: `{success:false,message:"Request body is too large"}`. |
+| `500` | Unexpected database/server failure: `{success:false,message:"Internal server error"}`; raw driver errors and stacks are hidden. |
+
+Invalid POST/PATCH phone syntax yields `400` with this field feedback:
+
+```json
+{
+  "success": false,
+  "message": "Request validation failed",
+  "details": [{
+    "section": "body",
+    "field": "phone",
+    "message": "Enter a phone number using digits, an optional leading +, spaces, hyphens, dots, or parentheses."
+  }]
+}
+```
+
+Frontend services validate public response shapes. Missing agents use separate feedback; malformed responses, HTTP/network failures, and timeouts never become fabricated empty success. Read retries only re-execute GETs. Failed create/edit inputs remain available, and no mutation retry interceptor is installed.
+
+## Redis caching and consistency
+
+[agentListCache.js](server/src/services/agentListCache.js), [agentDetailCache.js](server/src/services/agentDetailCache.js), and [agentCacheState.js](server/src/services/agentCacheState.js) implement optional cache-aside reads:
+
+- Lists cache the complete public response/pagination together, including empty results. Keys contain a shared generation and a hash of normalized page/limit/search/status/service-area parameters; search text is not embedded in the key.
+- Detail keys use lowercased record IDs. Entries include a generation and the public response. Invalid JSON/shapes/IDs/generations are misses, not trusted payloads.
+- Payloads expire using `AGENT_LIST_CACHE_TTL_SECONDS` (default 60 seconds). Hits do not extend TTL. Generation metadata has no payload TTL; obsolete list payloads expire naturally.
+- Only successful MongoDB mutations rotate the generation and delete the affected detail key. No collection-wide Redis scan/flush occurs. Invalid input, missing targets, and failed writes do not invalidate warm caches.
+- Commands are bounded to approximately one second. Read/write failures return MongoDB data; failed invalidation does not undo a successful write. Local reads/fills bypass caching during invalidation. Failed invalidation latches local bypass until a later successful local invalidation; connectivity alone does not clear it.
+- Pre-mutation fills retain their old generation and cannot be treated as fresh under a newer generation. A late detail fill can overwrite a newer entry physically, but its old generation forces a safe miss and database refill.
+
+Redis startup connection attempts are bounded to three seconds. Missing/blank settings skip Redis; failed connection leaves the API usable if MongoDB works. Automatic reconnection/offline queuing are disabled. After runtime connection loss, restart the backend or explicitly reconnect through the existing manager; no background retry process or public reconnect endpoint exists.
+
+API cache prefixes are `fleetflow:agents:list:v2:`, `fleetflow:agents:detail:v2:`, and metadata key `fleetflow:agents:cache:v2:generation`. Access needs GET/SET (including NX for generation initialization and expiry on payloads) plus DEL for affected details. Configure credentials/TLS privately.
+
+Automated tests use fake Redis and controlled storage for hits/misses, expiry, errors, mutations, concurrent invalidation, and late fills. These do **not** establish live reliability or transactional consistency. MongoDB and Redis are not one transaction: in-flight reads can finish with old data, other instances can serve stale payloads after failed invalidation until TTL expiry, local bypass does not survive restart, and direct database writes bypass API invalidation. The owner previously reported Redis Cloud PING/PONG connectivity only; live cache expiry/invalidation remains unverified.
+
+## Tests and production build
+
+These are the actual package scripts. Use the specified directories; normal tests need no live credentials/services.
+
+| Directory | Command | Purpose |
+| --- | --- | --- |
+| `server/` | `npm test -- --test-concurrency=1` | Full backend suite. The script is `node --test`; the CLI flag runs files sequentially, matching established verification. |
+| `server/` | `npm start` / `npm run dev` | Normal API / source watch mode; these require MongoDB configuration. |
+| `client/` | `npm test` | Full frontend suite, including Vite-to-Express checks. Install both packages first. |
+| `client/` | `npm run build` | Vite production build into ignored `client/dist/`. |
+| `client/` | `npm run preview` | Serve an existing build locally, normally `http://localhost:4173`, with the preview API proxy. Build first; this does not deploy the app. |
+
+Useful focused commands are ad hoc Node commands, not extra npm scripts:
+
+Inside `server/`:
+
+```powershell
+node --test test/cache-consistency.test.js test/cache-invalidation.test.js test/crud-flow.test.js
+```
+
+Inside `client/`:
+
+```powershell
+node --test test/backend-integration.test.js test/request-feedback.test.js test/proxy.test.js
+```
+
+From the repository root, a JavaScript syntax example and Git whitespace check:
+
+```powershell
+node --check server/src/app.js
+git diff --check
+```
+
+There is no lint, seed, migration, browser-E2E, or combined root test npm script. Vite builds compile JSX; `node --check` is for applicable JavaScript. Backend tests exercise real routes/validation/controllers and mocked model storage/Redis; they do not enforce real MongoDB indexes. Frontend tests render React to strings and exercise resources/services over fixtures, including the real Express app. They do not execute browser clicks, native dialog focus, or deployed navigation. Cancellation, duplicate-write guards, phone validation, safe failures, retries, and stale responses have automated coverage.
+
+### Opt-in live scripts
+
+These existing scripts are separate from normal suites and were **not run in Step 28**. Set the named test variable privately in the process environment before running, inside `server/`:
+
+| Script command | Required configuration and scope |
+| --- | --- |
+| `node scripts/verify-crud.js` | `FLEETFLOW_TEST_MONGODB_URI`; disposable randomly named collection, real indexes, and HTTP CRUD checks. Attempts exact collection cleanup; inspect cleanup output/exit status if interrupted or unsuccessful. |
+| `node scripts/verify-redis.js` | `FLEETFLOW_TEST_REDIS_URL`; connectivity and PING/PONG only, no data writes. |
+| `node scripts/verify-cache.js` | `FLEETFLOW_TEST_REDIS_URL`; isolated `fleetflow:verification:*` keys, list/detail hits, expiry/invalidation/late fills, and exact-key cleanup. No MongoDB or API mutations. Forced timeout can leave metadata; require exit code zero, including cleanup. |
+
+The earlier `server/scripts/verify-create-agent.js` still exists as a legacy create-only check. Unlike the newer scripts, it loads private server configuration and starts services before testing a disposable collection. Prefer explicit-configuration `verify-crud.js` for a deliberate live CRUD check; neither was run here. A script's existence or a tested missing-configuration guard is not evidence its live checks passed.
+
+## Deployment configuration
+
+The existing arrangement is **Vercel frontend + Render backend**; Step 28 changes neither service. Repository files establish routing and package commands, not live dashboard settings or service health.
+
+| Surface | Settings implied by the repository |
+| --- | --- |
+| Vercel | Use `client/` as project root, install its dependencies (`npm ci`), build with `npm run build`, and publish `dist/` relative to that root. Keep public `VITE_API_BASE_URL=/api` or unset it. Browser-variable changes require rebuilding/redeploying. |
+| Render | Use `server/` as service root, install with `npm ci`, start with `npm start`, and use Node 24+. Supply private `MONGODB_URI`, platform `PORT`, optional `REDIS_URL`, and optional TTL in service configuration. MongoDB network access must allow the backend environment. |
+
+[client/vercel.json](client/vercel.json) first rewrites `/api/:path*` to the already documented public backend origin `https://fleetflow-api-2fq1.onrender.com/api/:path*`, then `/(.*)` to `/index.html`. That order preserves API responses while supporting direct `/agents/:id` and edit navigation. `API_PROXY_TARGET` is dev/preview-only and cannot change the deployed rewrite destination.
+
+An absolute `VITE_API_BASE_URL` bypasses the same-origin proxies/rewrites. Express does not enable cross-origin browser access via CORS; `CLIENT_ORIGIN` is not a supported switch. Keep `/api` for this deployment. No Render blueprint or live project settings are present in the repository, and a frontend deployment URL is not established here. No public URL was probed, live settings inspected, or hosting health inferred from configuration.
+
+## Troubleshooting and limitations
+
+| Symptom | Checks supported by the implementation |
+| --- | --- |
+| API will not start | Use Node 24+, install `server/` dependencies, and privately replace the MongoDB placeholder. PORT and MONGODB_URI are required; supplied blank TTL is invalid. Process variables override file values. Never print secrets while diagnosing. |
+| MongoDB connection failure | Check URI/database, user permissions, credential encoding, DNS/network reachability, and Atlas IP access where used. Connection has a 30-second server-selection timeout; HTTP waits for readiness. Redis cannot substitute for MongoDB. |
+| Shell loads but data fails | Check the API's printed port and basic `/api/health` response. Match `API_PROXY_TARGET` to that origin, keep browser base `/api`, and restart Vite after changes. Error is not an empty database. |
+| First-load failure or timeout | Record public request path, duration, status/content type, and timeout/connection category in browser Network tools without sharing secrets. Correlate with backend startup/request logs and database readiness, then retry manually. The 10-second browser deadline differs from an HTML/proxy/HTTP failure; a Render cold start has **not** been established as the cause. |
+| Deployed API gets HTML, or detail-page refresh fails | Verify the live build's public base and whether API rewrite runs before SPA fallback. The local proxy is not shipped in static assets. A build is not a deployment/network check. |
+| Redis warning or uncached reads | MongoDB requests remain usable. Check private connectivity/configuration/permissions; runtime recovery requires explicit reconnect/restart, and invalidation bypass may require a subsequent successful local mutation. Do not flush shared Redis data to diagnose the app. |
+| Missing agent or invalid link | Use database `id`, not business `agentId`. A valid removed record is 404; malformed IDs are 400. Return to Agents and reload. |
+| Failed/timed-out save | Drafts remain available, but a lost response does not prove the write failed. Check details/list before explicitly submitting again. Read retries do not repeat mutations. |
+| Tests/build fail | Run from the correct package, use Node 24+, and install both lockfiles' dependencies with `npm ci`. Use sequential backend execution. Test ports are ephemeral; inspect actual assertions/exit codes without weakening tests or assuming a live-service issue. |
+
+No authentication/authorization, rate limiting, or production security assurance is implemented. The public CRUD API is not access-controlled. Agents are configured database records, not seeded demo rows; tests use disposable dummy records. No live MongoDB CRUD/cache consistency, current Redis Cloud caching, multi-instance production correctness, or current deployed-browser/focus/viewport verification is claimed. Historical owner-reported manual checks apply only to the recorded step/conditions. The current production first-load issue remains unproven, and Step 25 remains PENDING for live/browser checks.
+
+## Step 28 documentation verification
+
+Step 28 is COMPLETE against its documentation acceptance criteria. The guide now covers the implemented features, architecture/database model, setup, all eight application/script environment variables, six API method/path pairs, safe examples, cache behavior, tests/build, Vercel/Render routing, and troubleshooting. The legacy root example's unused `CLIENT_ORIGIN` is identified without changing configuration. Historical status/verification text, including Steps 24–27, is retained unchanged below.
+
+Checks performed on October 19, 2026, using Node 24.19.0 and npm 11.7.0:
+
+| Directory/check | Command or method actually used | Result |
+| --- | --- | --- |
+| `server/` | `npm test -- --test-concurrency=1` | 136 passed, 0 failed, 0 skipped |
+| `client/` | `npm test` | 107 passed, 0 failed, 0 skipped |
+| `client/` | `npm run build` | Passed with Vite 8.3.4; 2,079 modules transformed |
+| Repository root | `node --check server/src/app.js` | Passed |
+| Documentation audit | Ad hoc Python checks against source/package files | All six API method/path pairs, eight documented variables, package scripts/engines, named current test/script files, and 25 local Markdown links checked |
+| Examples | JSON parsing and PowerShell parser, without executing setup/API examples | Three JSON blocks and eight PowerShell blocks passed syntax checks |
+| Diagram | Basic Mermaid flowchart grammar/structure check and manual source-flow review | Six declared nodes and six edges checked; visual rendering was not performed and no dependency was added |
+| Preservation/scope | Compare historical text and numbered roadmap entries with Git HEAD | Historical status ledger and Step 2–27 verification suffix unchanged; numbered roadmap entries other than Step 28 unchanged |
+| Repository root | `git diff --check` | Passed |
+
+The documentation audits were temporary verification commands, not new project scripts, tests, or dependencies. Installation commands, example CRUD writes, ordinary configured backend startup, opt-in live scripts, and deployment operations were not executed. Full tests used their existing isolated fixtures; no real service credentials were needed. Diagram rendering, live MongoDB/Redis persistence/cache behavior, live Vercel/Render configuration and health, and current interactive/deployed-browser acceptance remain unverified. The earlier first-load failure has no established production root cause here.
+
+Only `README.md` and `docs/STEP_PLAN.md` changed; runtime code, tests, lockfiles, environment examples, and hosting configuration are unchanged. No private environment file was inspected or modified. Step 25 remains PENDING for live/browser verification; Steps 29–30 remain PENDING. Nothing was staged, committed, or pushed.
+
+Suggested commit after review: `docs: complete project setup and API documentation`
+
+## Historical development record
+
+The historical status ledger and verification notes below are preserved from the previous README, including Steps 24–27 and the phone-validation correction. They describe historical implementation states, commands, results, and limitations. Old pending statuses, disabled-action descriptions, and test counts are time-specific records; the guide above and current roadmap take precedence for present setup. These historical notes have not been rewritten or removed.
+
+<details>
+<summary>Expand historical verification notes (Steps 2–27)</summary>
 
 ## Current setup status
 
@@ -37,796 +436,6 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
 - `client/` contains a responsive dashboard shell, API-backed overview, searchable/filtered/paginated Agents list, creation/edit forms, individual details, and delete confirmation with loading/not-found/error/retry handling. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
 - The backend loads `server/.env` and requires valid PORT and MongoDB URI configuration. Existing private configuration is preserved. Redis remains optional because caching must not prevent database-backed API startup.
-
-## Planned technology stack
-
-| Area | Technology | Purpose |
-| --- | --- | --- |
-| User interface | React + Vite | Build and develop the browser application |
-| Styling | Tailwind CSS | Style the interface consistently |
-| Navigation | React Router | Move between application pages |
-| API requests | Axios | Send requests from the browser to the server |
-| Backend | Node.js + Express | Run the server and expose API endpoints |
-| Input validation | Zod | Check incoming data before using it |
-| Database | MongoDB + Mongoose | Store application data and define its structure |
-| Response caching | Redis | Cache agent lists and details with expiry and invalidation |
-
-## Planned features
-
-The agreed scope includes creating, listing, viewing, updating, and deleting delivery agents; searching and filtering agents by status and service area; paginated results; and dashboard totals for active/inactive agents plus recent registrations. Backend CRUD, validation, caching/invalidation, the dashboard overview, Agents list, creation/edit forms, detail page, and confirmed deletion are implemented. The remaining roadmap covers integration verification, polish, tests, documentation, and submission.
-
-## High-level architecture
-
-The React overview in `client/` sends HTTP requests to the Express API in `server/` using Axios. The server validates input with Zod and uses Mongoose to read and write MongoDB Atlas data. Redis caches agent list and detail responses, with expiry and invalidation after successful mutations. Database credentials and other server secrets stay on the server.
-
-```text
-Browser: React + Vite + Tailwind CSS + React Router
-    |
-    | HTTP requests through Axios
-    v
-Server: Node.js + Express + Zod
-    |-- Mongoose --> MongoDB
-    `-- Redis (agent response caching)
-```
-
-## Project layout
-
-```text
-FleetFlow/
-|-- client/
-|   |-- .env.example          Public API base URL example
-|   |-- .gitignore            Local dependencies, builds, and environment files
-|   |-- package.json          Frontend dependencies and commands
-|   |-- package-lock.json     Exact resolved dependency versions
-|   |-- index.html            Browser document with the React mount point
-|   |-- vite.config.js        React and Tailwind Vite plugins
-|   |-- src/
-|       |-- main.jsx          React entry point and browser router
-|       |-- App.jsx           Shared layout routes and unknown-page fallback
-|       |-- index.css         Tailwind import, font, wrapping, and focus styles
-|       |-- components/layout/
-|       |   |-- Brand.jsx     Shared logo and workspace subtitle
-|       |   |-- Sidebar.jsx   Desktop sidebar and shared navigation
-|       |   |-- Header.jsx    Header and mobile navigation disclosure
-|       |   `-- DashboardLayout.jsx  Shell, menu state, and content outlet
-|       |-- components/overview/OverviewContent.jsx  Summary cards and request states
-|       |-- pages/OverviewPage.jsx   Overview request lifecycle and page
-|       |-- services/overviewService.js  Paginated counts and recent-agent mapping
-|       |-- components/agents/  Filters, table, results, create/edit forms, details, and DeleteAgentDialog
-|       |-- pages/AgentsPage.jsx  Agents request lifecycle inside the shared shell
-|       |-- pages/AgentDetailPage.jsx  Detail/edit loading, route ID checks, and post-mutation navigation
-|       |-- services/agentsService.js  CRUD requests and public response validation
-|       |-- validation/createAgent.js  Form rules, normalization, and safe submission errors
-|       |-- validation/agentMutations.js  Editable fields, partial updates, and mutation errors
-|       |-- state/createAgentResource.js  Form values and guarded submission lifecycle
-|       |-- state/agentMutationResources.js  Guarded edit/save and confirm/delete lifecycles
-|       |-- state/agentsResource.js  Applied filters, pagination, retry, and reset
-|       |-- state/requestResource.js  Shared load/retry/cancel lifecycle
-|       |-- state/overviewResource.js  Existing overview interface to that shared lifecycle
-|       `-- lib/api.js        Shared Axios client
-|   `-- test/                Layout, agent CRUD UI/services, overview, and Vite proxy tests
-|-- server/
-|   |-- .env.example         Safe backend configuration template
-|   |-- package.json         Server dependencies and commands
-|   |-- package-lock.json    Exact resolved dependency versions
-|   |-- src/
-|   |   |-- app.js           Express routes and middleware
-|   |   |-- server.js        Starts the HTTP server
-|   |   |-- startup.js       Connects the database before listening; owns cleanup
-|   |   |-- routes/
-|   |   |   `-- agentRoutes.js       All five agent routes and request validation
-|   |   |-- controllers/
-|   |   |   `-- agentController.js   Create/list/detail/update/delete handlers
-|   |   |-- services/
-|   |   |   |-- agentCacheState.js   Shared generation, invalidation, and bounded commands
-|   |   |   |-- agentListCache.js    List cache keys, JSON checks, and Redis reads/writes
-|   |   |   `-- agentDetailCache.js  Agent-specific cached detail responses
-|   |   |-- validation/
-|   |   |   |-- agentSchemas.js     Create/update bodies, list query, and ID params
-|   |   |   `-- cachedAgentSchema.js  Public agent fields accepted by both caches
-|   |   |-- config/
-|   |   |   |-- env.js       Loads and validates backend configuration
-|   |   |   |-- db.js       Mongoose connection and safe lifecycle messages
-|   |   |   `-- redis.js    Optional shared Redis connection and bounded cleanup
-|   |   |-- models/
-|   |   |   `-- Agent.js     Delivery Agent schema and exported model
-|   |   |-- middleware/
-|   |   |   |-- validateRequest.js  Reusable Zod request validation
-|   |   |   `-- errorHandler.js     Final JSON error handler
-|   |   `-- utils/
-|   |       `-- ApiError.js  Expected application and request validation errors
-|   |-- test/
-|       |-- env.test.js      Configuration regression tests
-|       |-- db.test.js       Mocked database connection tests
-|       |-- redis.test.js    Mocked Redis configuration and lifecycle tests
-|       |-- agent.test.js    Agent schema validation and index definitions
-|       |-- create-agent.test.js    Mocked create-agent endpoint tests
-|       |-- list-agents.test.js     Mocked list query and pagination tests
-|       |-- get-agent.test.js       Mocked single-agent lookup tests
-|       |-- update-agent.test.js    Partial updates and Mongoose query middleware
-|       |-- delete-agent.test.js    Mocked targeted deletion and error responses
-|       |-- crud-flow.test.js       Connected lifecycle with a fresh mocked store
-|       |-- cache-invalidation.test.js  Mutation invalidation and stale-fill protection
-|       |-- integration-script.test.js  Optional-script configuration guard
-|       |-- request-errors.test.js  Request middleware and safe error responses
-|       `-- startup.test.js  Startup ordering, HTTP, and cleanup tests
-|   |-- test-support/
-|   |   |-- crudFlow.js      HTTP assertions shared by mocked and optional real checks
-|   |   `-- fakeRedis.js     Shared test-local Redis storage and expiry clock
-|   `-- scripts/
-|       |-- verify-create-agent.js  Earlier opt-in create persistence check
-|       |-- verify-crud.js   Opt-in full CRUD check; process configuration only
-|       `-- verify-redis.js  Opt-in Redis PING; process configuration only
-|-- docs/
-|   |-- DEVELOPMENT_RULES.md Permanent development rules
-|   `-- STEP_PLAN.md         Roadmap and acceptance criteria
-|-- README.md                Project overview and progress
-|-- .gitignore               Files Git should ignore
-`-- .env.example             Safe configuration placeholders
-```
-
-Client source files and package lockfiles belong in Git. Both package directories' `node_modules/`, local environment files, and frontend `dist/` output are ignored; `.env.example` files remain trackable.
-
-## Development workflow
-
-Before every future step, read [the development rules](docs/DEVELOPMENT_RULES.md) and [the step plan](docs/STEP_PLAN.md). Implement only the current step requested by the project owner. Update this README with actual progress and record the checks performed before requesting review.
-
-## Frontend setup and commands
-
-Use Node.js 24 or newer and npm, matching the backend convention. The frontend is a separate package inside `client/`; run these PowerShell commands from the repository root:
-
-```powershell
-cd client
-npm ci
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-npm run dev
-```
-
-Open the local URL printed by Vite, normally `http://localhost:5173`. If that port is occupied, Vite may select the next available port. The shell renders without the backend, but overview data requires a reachable Express API and MongoDB. Redis remains optional. Stop Vite with Ctrl+C. For a fresh checkout, `npm ci` installs the exact versions in `client/package-lock.json`.
-
-For the local overview setup, start the backend in a separate PowerShell terminal from the repository root:
-
-```powershell
-cd server
-npm start
-```
-
-The existing backend's normal local configuration uses port 5000, and the Vite proxy now defaults to that same port. No PORT override is needed. Use a fresh terminal without the earlier process-only PORT override, or remove that stale override with `Remove-Item Env:PORT -ErrorAction SilentlyContinue` before starting the backend. Backend code has no hardcoded port: `config/env.js` validates PORT and `startup.js` listens on that value. `GET /api/health` and `GET /api/agents` are the actual mounted paths. To use a backend running on a different port, set `API_PROXY_TARGET` in `client/.env` to its public origin and restart Vite; no backend file changes are needed.
-
-| Command inside `client/` | Purpose |
-| --- | --- |
-| `npm run dev` | Start Vite with development updates when files change |
-| `npm run build` | Compile the frontend into `client/dist/` for production |
-| `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
-| `npm test` | Run 107 frontend tests, including frontend-to-Express integration (requires dependencies installed in both `client/` and `server/`) |
-
-`preview` is a local build check, not a production hosting service. The existing Vercel configuration serves `index.html` for browser-router page URLs such as `/agents`, `/agents/:id`, and `/agents/:id/edit`, after matching the API rewrite. Overview, Agents, Agent details/editing, and the unknown-page fallback share the dashboard shell. Creation is available on Agents; confirmed deletion is available from the table and detail page.
-
-### Frontend configuration
-
-`client/.env.example` documents the safe local values:
-
-```dotenv
-VITE_API_BASE_URL=/api
-API_PROXY_TARGET=http://localhost:5000
-```
-
-If an existing `client/.env` still contains the earlier `API_PROXY_TARGET=http://localhost:7777`, change that public target to `http://localhost:5000` or remove it to use the default, then restart Vite.
-
-`src/lib/api.js` uses `axios.create()` to export one reusable HTTP client with a 10-second timeout. It reads `import.meta.env.VITE_API_BASE_URL`; missing/blank values now fall back to `/api`. Requests to `/agents` target `/api/agents` on the frontend origin. `vite.config.js` forwards `/api` unchanged to `API_PROXY_TARGET` during development and preview, defaulting to `http://localhost:5000`. The public proxy target is loaded from client configuration and is not a `VITE_*` browser variable. This follows [Vite's proxy configuration](https://vite.dev/config/server-options#server-proxy).
-
-If you copied the older client example, replace its `VITE_API_BASE_URL=http://localhost:5000/api` with `/api` and set the proxy target to the running backend's origin. Absolute API base URLs bypass Vite's proxy and require server-side CORS permission; the existing Express app does not enable cross-origin access. The existing `client/vercel.json` forwards `/api/:path*` to `https://fleetflow-api-2fq1.onrender.com/api/:path*` before its SPA fallback. Keep the deployed frontend's public API base at `/api` (or unset to use that default), so browser requests use this same-origin rewrite. Vercel environment values override the build default; the deployed settings were not inspected in Step 25. The development/preview proxy is not included in `dist/`. Restart Vite after local environment changes; rebuild after changes to browser environment values.
-
-Vite loads client environment files automatically. **Every `VITE_*` value is public browser configuration** and can be included in built assets. Never copy server database/Redis URLs, passwords, or secret tokens into client environment files. The client does not load the private backend environment file. See [Vite environment documentation](https://vite.dev/guide/env-and-mode).
-
-Overview, Agents, and Agent details read data through the existing Axios client. Agent forms use POST `/api/agents` and PATCH `/api/agents/:id`; confirmed deletion uses DELETE `/api/agents/:id`. No backend CORS changes or new endpoints were needed. A frontend build alone does not verify backend connectivity; Step 20 records the earlier live overview check, while Steps 21-24 use controlled responses and local HTTP fixtures.
-
-### Frontend files and dependencies
-
-- `index.html` supplies the page title and the `root` element where React mounts.
-- `src/main.jsx` mounts React with `createRoot()`. `StrictMode` helps detect development issues; `BrowserRouter` enables navigation without full page reloads.
-- `src/App.jsx` nests Overview (`/`), Agents (`/agents`), Agent details (`/agents/:id`), Edit agent (`/agents/:id/edit`), and the unknown-page route inside `DashboardLayout`. Page containers subscribe to request state and load/cancel it through React effects. The overview view renders summary cards and recent registrations. `components/agents/` contains the search/filter form, results states/pagination, responsive table, shared create/edit field rendering, detail view, and delete confirmation.
-- `components/layout/Brand.jsx` shares the FleetFlow logo and subtitle. `Sidebar.jsx` exports the shared navigation and desktop sidebar. `Header.jsx` uses that same navigation for a mobile disclosure. `DashboardLayout.jsx` owns the menu state, responsive reset, Escape handler, skip link, page title, and React Router `Outlet`, which displays the selected page.
-- `src/index.css` imports Tailwind and defines the system font, visible keyboard focus outlines, and wrapping for long text. `vite.config.js` registers the React and Tailwind plugins. This follows the officially supported [Tailwind Vite setup](https://tailwindcss.com/docs/installation/using-vite); no legacy `tailwindcss init`, separate PostCSS configuration, or Autoprefixer package is needed.
-- `src/lib/api.js` is the existing shared Axios client. The overview and agents services map the actual API responses. The existing request lifecycle was extracted unchanged into `state/requestResource.js` so both pages share loading/success/error, cancellation, retry, and late-response protection. `overviewResource.js` preserves its existing export as an alias; `agentsResource.js` adds applied query state, page resets, and server-bound pagination. React uses `useSyncExternalStore` to subscribe to the same logic tested directly by Node. No authentication or interceptors were added.
-- `package.json` declares ES modules, Node requirements, dependencies, and scripts. `package-lock.json` records the exact installed dependency tree.
-- `client/.gitignore` complements the root ignore rules for dependencies, build output, tool caches, logs, editor settings, and local environment files. The safe `.env.example` stays trackable.
-
-React and React DOM render the page; React Router provides declarative routing; Axios prepares HTTP access; Lucide React provides icons. Vite, its React plugin, Tailwind CSS, and its Vite plugin are development/build dependencies. The [React Router installation guide](https://reactrouter.com/start/declarative/installation) uses the `react-router` package directly, so `react-router-dom` is not installed.
-
-### Step 19 layout and manual verification
-
-The shell uses slate neutrals, emerald accents, a white sidebar/header, and restrained typography. At `lg` (64rem, normally 1024px), a 16rem desktop sidebar sits beside a flexible content column. Below that breakpoint, the header shows branding with the current page title and a 44px navigation button. The button opens an inline navigation panel below the header; it pushes content down instead of covering it with a modal. There is no focus trap because the panel is not a dialog.
-
-Overview links to `/` and Agents now links to `/agents`, with React Router's active-page indication in shared desktop/mobile navigation. Unknown URLs preserve the shell and offer a link home. Content has a maximum width, responsive padding, a `minmax(0, 1fr)` grid column, and long-text wrapping to reduce overflow. The supported minimum viewport width is 320px.
-
-The menu button reports its current state through `aria-expanded`, identifies its panel with `aria-controls`, and changes its label between Open navigation and Close navigation. Closing via the selected Overview link or Escape returns focus to the menu button. Route changes and crossing into the desktop breakpoint reset the menu. Closed contents use the native `hidden` attribute, keeping their links out of keyboard navigation. A Skip to content link and visible focus outlines support keyboard use. Event listeners are removed when no longer needed.
-
-For future regression checks, run `npm run dev` inside `client/`, then use browser responsive/device tools:
-
-| Viewport | Expected behavior to verify |
-| --- | --- |
-| 320×568 and 390×844 | Branding, page title, and menu button fit; welcome text wraps; no horizontal scrolling |
-| 768×1024 (tablet portrait) | Inline mobile navigation and comfortable content spacing |
-| 1024×768 (tablet landscape) | Desktop sidebar replaces the mobile control; main content fits the remaining column |
-| 1280×800 and 1440×900 | Persistent sidebar/header, consistent spacing, and bounded content width |
-| 200% browser zoom | Navigation switches at the effective CSS width and text remains usable |
-
-At each relevant size, check that `document.documentElement.scrollWidth <= window.innerWidth`. Use Tab to reach Skip to content, activate it, and confirm focus moves to the main content. Below the desktop breakpoint, use Enter/Space on the menu control, check expanded/collapsed state, and press Escape to confirm the menu closes and focus returns to its button. Reopen it and select Overview or Agents to check the same close behavior. Open the menu, resize to desktop and back, and verify it stays closed. Check active navigation styling on both routes. Load an unknown URL and follow Return to Overview. On Agents, horizontal scrolling should stay inside the labelled table region; View/Edit open their routes, and Delete must open confirmation without sending a deletion request.
-
-The project owner confirmed manual browser verification passed at 320px, 390px, 768px, 1024px, and 1440px: mobile menu open/close, Escape closing the menu and returning focus, Tab navigation, resizing across 1024px, and no horizontal overflow all passed. This browser verification was performed by the project owner, not the agent. Step 19 is COMPLETE; Steps 20-30 remain pending. No metrics, tables, forms, user profiles, fake data, API calls, or new dependencies were added.
-
-## Backend setup and commands
-
-Use Node.js 24 or newer and npm. Verification used Node.js v24.19.0 and npm 11.7.0. From the repository root:
-
-```powershell
-cd server
-npm ci
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-# If creating a new .env, replace its MongoDB placeholder privately before starting.
-npm run dev
-```
-
-`cd server` selects the backend package. `npm ci` installs the exact versions recorded in `package-lock.json`. The PowerShell `if` command copies the safe template only if `.env` does not already exist, preserving any local settings. `npm run dev` runs `node --watch src/server.js`, which starts the API and restarts it when source files change. Stop it with Ctrl+C. To run without automatic restarts, use `npm start` (`node src/server.js`). Run `npm test` (`node --test`) for all server tests, or `node --test test/request-errors.test.js` for just the request/error tests. Neither test command requires a live database or private environment configuration. No build command is needed for this JavaScript backend.
-
-Direct dependencies are Express 5.3.0, dotenv 18.0.8, Zod 4.6.7, Mongoose 9.11.2, and redis 6.3.0 (node-redis), with exact resolved versions in the lockfile. Express serves requests, dotenv reads the environment file, Zod checks configuration, Mongoose manages MongoDB connectivity, and node-redis provides the Redis client. Node provides watch mode and tests, so no nodemon or test dependency is needed. Step 13 used `npm install redis` inside `server/`; `npm ci` above is the reproducible setup command for an existing checkout.
-
-## MongoDB Atlas prerequisites and startup
-
-MongoDB is FleetFlow's persistent database: it retains created agents between server restarts. Redis is optional and connects only when configured; it caches successful agent-list and individual-agent responses. The create route imports the existing Agent model. Mongoose can initialize its collection and indexes after connection; the controller also waits for `Agent.init()` before writing so duplicate protection is ready.
-
-Before starting, have an active Atlas cluster, a database user with access to the intended FleetFlow database, and your current machine's IP permitted in Atlas Network Access. A database user is separate from an Atlas website account. Obtain the Node.js driver connection URI privately from Atlas, fill in the database user's credentials and application database name locally, and save it as `MONGODB_URI` in `server/.env`. Encode special characters in credentials as required by the URI format. Do not paste the URI into chat, logs, documentation, or Git. Existing `.env` files must be preserved; the guarded PowerShell copy above only creates one when absent.
-
-Startup runs in this order:
-
-1. Load `server/.env` and validate PORT and MongoDB URI syntax.
-2. Call `connectDatabase()` and wait for Mongoose to connect to Atlas.
-3. If `REDIS_URL` is supplied, attempt Redis once with a three-second connection deadline. Missing or failed Redis configuration does not stop startup.
-4. Open the Express HTTP listener on the validated port, unless shutdown was requested during either connection phase.
-
-`mongoose.connect()` starts the network connection and authentication process. It returns a Promise because this work finishes later; `await` pauses startup until the Promise succeeds or fails. The connection module reuses an established connection or waits for one already opening, avoiding duplicate connections. See the [Mongoose connection guide](https://mongoosejs.com/docs/connections.html).
-
-On success, expect `MongoDB connected successfully.`, a fixed Redis connected/skipped/failed message, then `FleetFlow API is running at http://localhost:<port>`. None includes a connection URI or credentials. Then request `GET /api/health` as shown below. The unchanged health response confirms HTTP startup completed after database connection; it is not an ongoing database or Redis readiness probe.
-
-If connection fails, startup logs safe instructions, closes the database client, exits unsuccessfully, and leaves HTTP closed. The connection uses a 30-second server-selection timeout, without a custom retry system. Connection error and disconnected events emit fixed messages without driver details. Mongoose retains its normal connection monitoring behavior.
-
-Ctrl+C (SIGINT) or SIGTERM starts shutdown: stop accepting HTTP requests, let active requests finish, close Redis, then disconnect Mongoose. Repeated cleanup requests share one operation. Shutdown during MongoDB or Redis startup cancels HTTP startup. Redis close gets a one-second grace period before immediate destruction; an in-progress Redis connection is bounded by its three-second deadline. MongoDB cleanup still runs if Redis cleanup fails. The existing ten-second overall shutdown deadline remains in place; cleanup failures exit unsuccessfully.
-
-For connection trouble, check the private database username/password, database permissions, current IP access-list entry, cluster availability, DNS resolution, and firewall/network access to Atlas. Restart after fixing local configuration. Do not disable TLS checks or expose credentials to diagnose errors. The [Atlas connection troubleshooting guide](https://www.mongodb.com/docs/atlas/troubleshoot-connection/) covers authentication, IP access, and network problems.
-
-## Delivery Agent model
-
-`server/src/models/Agent.js` defines the document structure with `mongoose.Schema()` and exports the `Agent` model as its default export. A schema describes what a record may contain; a model lets later code create and work with records using that schema. Importing this module does not load `.env` or call a database connection function.
-
-| Field | Purpose and rules |
-| --- | --- |
-| `agentId` | Caller-supplied business identifier; required trimmed string with a unique MongoDB index. Values remain case-sensitive. It is separate from MongoDB's generated `_id`, exposed as `id` in API responses. No sequence counter or business-ID generator is introduced. |
-| `fullName` | Agent's display name; required trimmed string. |
-| `phone` | Contact number; required trimmed string containing numeric phone syntax. Optional leading `+`, spaces, hyphens, dots, and digit groups in parentheses are accepted; formatting is preserved. |
-| `email` | Contact email; required string, trimmed and converted to lowercase. |
-| `serviceArea` | Area served by the agent; required trimmed string. |
-| `status` | Trimmed string allowing only `active` or `inactive`. Defaults to `active` when omitted; null and empty values are rejected. |
-| `createdAt` | Date managed by Mongoose when the document is first persisted. |
-| `updatedAt` | Date managed by Mongoose when the document is saved or updated through supported Mongoose operations. |
-
-`timestamps: true` enables the two date fields. Merely constructing or validating an unsaved document does not populate timestamps. The schema tests check timestamp configuration without saving to a database.
-
-Only `agentId` has a declared unique index. Phone and email deliberately allow shared contact details because no rule requiring one agent per contact method has been agreed. Trimming and email lowercasing happen before persistence. The model and POST/PATCH request schemas enforce phone syntax; the request schemas also validate email syntax. No international phone canonicalization is introduced. See the phone-validation correction below for its scope and regression checks.
-
-Mongoose validation catches missing required fields, blank required text after trimming, and unsupported status values before a normal save. This helps keep records consistent; it does not replace request validation. `unique: true` declares a MongoDB index rather than a Mongoose validator: `validate()` cannot detect duplicate stored IDs. The create controller waits for index initialization and converts MongoDB duplicate-key code 11000 to a safe 409 response. MongoDB enforces uniqueness even for concurrent requests, without a race-prone pre-check. See the [Mongoose validation guide](https://mongoosejs.com/docs/validation.html) and [Model.init documentation](https://mongoosejs.com/docs/api/model.html#Model.init()).
-
-`server/test/agent.test.js` builds sample documents and calls `validate()` in memory. `validAgent()` supplies readable test data; `assert.rejects()` checks that invalid documents fail. The tests also inspect timestamp and index definitions. They import neither environment configuration nor startup code and require no live database or credentials.
-
-## Environment configuration
-
-Edit `server/.env` after copying `server/.env.example` only when needed. The template supplies safe `PORT=5000`, a clearly labelled MongoDB placeholder that must be replaced privately, and blank Redis configuration. It cannot connect until the MongoDB value is configured. The root `.env.example` remains a general planning template; the backend does not load a root `.env` or use its frontend placeholders.
-
-| Variable | Purpose and validation |
-| --- | --- |
-| `PORT` | Required TCP port. Must contain decimal digits representing a whole number from 1 through 65535. It is converted from text to a number before the server listens. There is no silent fallback for a missing or invalid value. |
-| `MONGODB_URI` | Required non-empty private MongoDB connection URI. Whitespace is trimmed and MongoDB's driver parser checks URI syntax, including standard and SRV formats, without connecting. Missing, blank, placeholder, and malformed values are rejected without printing them. Valid syntax does not prove that credentials or network access work; startup checks the real connection. |
-| `REDIS_URL` | Optional private `redis://` or `rediss://` connection URL; `rediss` uses TLS. Missing/blank skips Redis; nonblank text is trimmed and passed to the client. Invalid URL syntax or connection failures produce fixed warnings and leave Redis unavailable without preventing HTTP startup. Configure real values privately. |
-| `AGENT_LIST_CACHE_TTL_SECONDS` | Shared list/detail cache lifetime. The existing name is retained so Step 15 reuses configuration. Defaults to **60** when absent. If supplied, must be decimal whole-number text from **1 to 86400**, with surrounding whitespace allowed. Blank, zero, fractional, out-of-range, and nonnumeric values fail configuration validation with a fixed readable error. Applies to new cache writes; changing it does not alter already stored entries. |
-
-`src/config/env.js` uses a path relative to its own location to load `server/.env`, even when Node starts from the repository root. Existing process variables take precedence over values in the file. A missing file is allowed when the process environment supplies valid `PORT` and `MONGODB_URI`; an unreadable file fails with a readable error. The loader validates before the HTTP listener starts and exports `env` for other modules. Startup passes the validated list TTL through Express `app.locals`, so controllers do not import or load private environment configuration. Only expected fields are exported. Error messages do not print submitted values or credentials.
-
-This uses dotenv's explicit path and override options and Zod's schema parsing; see the [dotenv documentation](https://github.com/motdotla/dotenv#readme) and [Zod API documentation](https://zod.dev/api).
-
-The root `.gitignore` already excludes `.env` and `.env.*` in subfolders and permits `.env.example`. No server-specific ignore file is needed. Never commit `.env` or put real credentials in example files. Browser environment variables are public and must never contain secrets.
-
-If startup reports `PORT must be a whole number from 1 to 65535`, check `PORT` in `server/.env`: blank values, words, fractions, zero, negative values, and values above 65535 are rejected. A missing value produces the same instruction to set `PORT`. Existing PowerShell variables override the file. To remove unwanted overrides for the current terminal, use `Remove-Item Env:PORT -ErrorAction SilentlyContinue` or `Remove-Item Env:MONGODB_URI -ErrorAction SilentlyContinue`, without printing secret values. Restart the server after changing `.env`; watch mode tracks source files, so do not rely on it to reload the environment file. If a MongoDB syntax error occurs, replace the placeholder privately and check URI formatting; for connection failures use the Atlas troubleshooting guidance above. If the HTTP port is occupied, choose another free valid port or stop the conflicting process. For a file-read error, check permissions. Only Redis may remain absent or blank in this step.
-
-## Redis connection management
-
-`server/src/config/redis.js` exports `connectRedis(url)`, `disconnectRedis()`, and `getRedisClient()`. Startup passes `env.REDIS_URL` to the connection function; this module never loads `.env` itself. `getRedisClient()` returns the shared ready client or `null` when unavailable. The list-cache service reuses this client. Importing the module opens no connection.
-
-`connectRedis()` creates one client using node-redis. Concurrent connection requests share an attempt; calls after success reuse the ready client. Missing configuration returns `null` without creating a client. A configured attempt has a three-second socket timeout and a three-second overall deadline covering DNS/authentication/handshake work. URL parsing and connection failures return `null` with fixed messages. Raw errors, passwords, hostnames, and URLs are never logged.
-
-Automatic reconnection is disabled with `socket.reconnectStrategy: false`, and offline command queuing is disabled. A startup or runtime outage leaves Redis unavailable while MongoDB-backed requests remain usable. The ready-client getter returns `null` after a connection loss. There is no background recovery loop: restart the backend or explicitly call `connectRedis()` again after restoring the service. List requests fall back to MongoDB whenever Redis is unavailable.
-
-`disconnectRedis()` shares repeated cleanup calls. It uses `client.close()` to close a ready connection, then `client.destroy()` if graceful close fails or exceeds one second. A connecting client is destroyed and its bounded connection attempt is allowed to settle. Internal timers are cleared. `createRedisConnection()` makes an independent manager for tests, accepting a fake client factory, logger, and shorter test deadlines; production uses the shared `redisConnection`. The [node-redis documentation](https://github.com/redis/node-redis) describes client lifecycle methods; its [configuration reference](https://github.com/redis/node-redis/blob/master/docs/client-configuration.md) describes reconnect and offline-queue options.
-
-Run these commands in `server/`:
-
-```powershell
-node --test test/redis.test.js test/startup.test.js test/env.test.js test/integration-script.test.js
-npm test
-```
-
-The Redis tests use fake clients and do not require a Redis service. They cover absent configuration, client options, success/reuse, safe failures, connection and close deadlines, concurrent/idempotent cleanup, runtime loss, and shutdown during connection. Startup tests verify MongoDB gating, health responses after Redis failure, cancellation, and cleanup of both services. Environment tests use fake fixture files, never the private `server/.env`.
-
-For an optional real connectivity check, configure `FLEETFLOW_TEST_REDIS_URL` privately in the process environment, then run:
-
-```powershell
-node scripts/verify-redis.js
-```
-
-This separate script never loads `.env` or falls back to `REDIS_URL`. It connects, requires `PING` to return `PONG`, and closes the client. It writes no data and has an eight-second overall deadline. The normal suite checks its missing-configuration guard without connecting. The project owner reported a successful real Redis Cloud connection and PING/PONG using this command after Step 13. This verifies connectivity, not cached reads, writes, expiry, or invalidation. No live caching check was run by the agent during Steps 14-16. Caching now requires GET/SET permission for the `fleetflow:agents:list:v2:`, `fleetflow:agents:detail:v2:`, and `fleetflow:agents:cache:v2:` prefixes, plus DEL permission for affected detail keys. The generation SET also uses NX during initialization. Configure permissions and TLS/credentials privately.
-
-## Backend files and request flow
-
-- `server/package.json` describes the backend, declares its dependencies, and defines the `dev`, `start`, and `test` commands. `private: true` prevents accidental npm publication; `type: module` enables JavaScript `import` and `export`.
-- `server/package-lock.json` records exact dependency versions, making future installs reproducible. This file belongs in Git; `node_modules/` does not.
-- `server/.env.example` is the shareable backend template; the local `.env` copy is ignored by Git.
-- `server/src/config/env.js` loads the file, then uses a Zod schema to describe allowed configuration. `safeParse()` returns validated data or validation issues. The port schema checks decimal text, converts it with `Number`, and enforces the TCP range. MongoDB URI syntax is required and checked by constructing a driver client without opening it. Optional Redis blanks normalize to `undefined`. Invalid configuration throws a readable error before the server can listen. The module exports only the validated `env` object.
-- `server/src/config/db.js` exports `connectDatabase(uri)` and `disconnectDatabase()`. The startup code passes the validated URI. Connection failure logs a fixed message and rethrows the error for startup to handle; raw driver errors are never printed. Two module-level listeners report connection errors and closure without adding a listener on every call.
-- `server/src/config/redis.js` manages the optional shared Redis client with connection/close deadlines and safe fixed logs. Its factory supports isolated tests without a live service.
-- `server/src/services/agentListCache.js` builds deterministic list keys, checks cached JSON against the public response shape, and handles Redis failures with fixed warnings. It reads the existing ready client and writes the full response with an atomic expiry. Its factory accepts a fake client getter/logger for isolated tests.
-- `server/src/services/agentCacheState.js` owns the shared Redis generation key and post-mutation invalidation. Its `invalidate(id)` rotates the generation and deletes the affected detail key, with fixed safe logs and a process-local bypass after failure. `cacheCommand()` bounds both queued commands and stalled responses. Both production cache services share this state; tests can create independent managers.
-- `server/src/services/agentDetailCache.js` follows the same pattern for individual agents. It uses the ready Redis client, lowercases validated ObjectIds in keys, checks that cached data belongs to the requested ID, and falls back safely when Redis or cached data fails.
-- `server/src/validation/cachedAgentSchema.js` holds the unchanged public-agent allowlist previously defined in the list cache. Both services reuse it to reject malformed cached fields or internal metadata such as `__v`.
-- `server/src/app.js` creates and exports the Express application without opening a network port. Middleware runs in order: `express.json()`, health, the `/api/agents` router, the unchanged JSON 404 fallback, and the existing `errorHandler` last.
-- `server/src/routes/agentRoutes.js` defines `POST /`, `GET /`, `GET /:id`, `PATCH /:id`, and `DELETE /:id`, mounted under `/api/agents`. All use the existing `validateRequest()` before their controller: `body` for create, `query` for list, `params` for detail/delete, and both `params` and `body` for update.
-- `server/src/validation/agentSchemas.js` defines create/list validation and `agentParamsSchema`, which requires exactly 24 hexadecimal characters. `updateAgentSchema` picks only editable fields from the create schema, makes them optional, removes undefined values, and requires at least one supplied value. It preserves strict rejection of unknown keys and existing normalization without adding defaults.
-- `server/src/controllers/agentController.js` exports `createAgent()`, `listAgents()`, `getAgentById()`, and `updateAgent()`. Detail uses one targeted `Agent.findById()` query. Update uses `findByIdAndUpdate()` with `$set` for supplied fields, `runValidators: true` for model validation, `returnDocument: 'after'` for the updated record, and `upsert: false` to prevent accidental insertion. Mongoose manages timestamps. Both queries select public fields and use `lean()` for plain records. All four endpoints reuse `publicAgent()` and the existing central error handler.
-- The same controller also exports `deleteAgent()`. It calls `Agent.findByIdAndDelete()` once with the validated MongoDB ID, selects only `_id`, and uses `lean().exec()` to execute the query. A missing result is passed as `ApiError(404, 'Agent not found')`; unexpected errors are passed unchanged to the central handler. `response.status(204).end()` finishes a successful response without a JSON body.
-- `server/src/middleware/validateRequest.js` exports `validateRequest(schema, section)`. It checks a request section against a supplied Zod schema and passes failures to the shared error handler. Parsed data goes into `request.validated[section]` for route handlers to use.
-- `server/src/middleware/errorHandler.js` is the sole final API error handler. It formats Zod/request validation errors, parser errors, and expected application errors; hides unexpected internal details; and delegates with `next(error)` if a response has already started.
-- `server/src/utils/ApiError.js` defines `ApiError` for developer-controlled public application errors and `RequestValidationError` for internal Zod issues with their request-section label. Neither class writes an HTTP response; the central handler owns that job.
-- `server/src/startup.js` exports `startServer()`, which awaits MongoDB, attempts optional Redis, then listens. It returns the HTTP server and a reusable `shutdown()` function. Failure and shutdown clean up both services, with MongoDB cleanup in `finally`. Tests can inject database functions and a Redis manager while using the real Express app.
-- `server/src/server.js` loads validated configuration, starts the application, and handles signals. An AbortController marks startup as cancelled during shutdown; it prevents a pending connection from subsequently opening HTTP. Startup failures produce a fixed safe message and non-zero exit. The shutdown deadline prevents hanging cleanup.
-- `server/test/env.test.js` uses Node's built-in test runner and separate child processes to check configuration in isolation. `createFixture()` copies the real loader into a disposable folder; `runConfig()` starts it with controlled environment variables. Tests never overwrite the developer's real `.env`, and disposable files are removed after each test.
-- `server/test/db.test.js` mocks Mongoose connection methods to verify success, failure propagation, reuse, and safe logs. `server/test/startup.test.js` checks database-before-HTTP ordering, real HTTP responses with mocked database readiness, failure cleanup, cancellation, occupied ports, and repeatable shutdown.
-- `server/test/redis.test.js` checks optional Redis lifecycle behavior using injected fake clients. The startup/environment/script tests also cover the new configuration and cleanup paths.
-- `server/test/request-errors.test.js` uses isolated Express apps with test-only routes to exercise validation and error responses over HTTP. It also checks the already-sent-response guard directly. No test routes are added to the production app.
-- `server/test/create-agent.test.js` exercises the production app over HTTP while mocking `Agent.init()` and `Agent.create()`. The mock creates and validates real in-memory Agent documents, but supplies simulated persistence timestamps; it does not prove storage.
-- `server/test/list-agents.test.js` exercises the production GET route with mocked MongoDB queries and optional fake Redis. It checks filters, escaped regexes, projection, sort, skip/limit, metadata, invalid queries, empty pages, safe errors, cache hits/misses, key normalization/separation, malformed cached data, expiry options, and Redis read/write failures. A fake clock checks expiry without a real service or timed sleep; ordinary list tests explicitly use missing Redis.
-- `server/test/get-agent.test.js` mocks `Agent.findById()` while exercising the production detail route over HTTP. It verifies the exact targeted ID, projection, public fields, validation/404/500 behavior, and no full-list queries. Its cache checks cover hits/misses, case-normalized keys, expiry, shared TTL, malformed/mismatched payloads, Redis failures, and never caching missing agents or errors. Existing non-cache checks explicitly use unavailable Redis.
-- `server/test/update-agent.test.js` exercises PATCH over HTTP with mocked model updates, checks the targeted query and supplied fields, and tests normalization and errors. One additional test executes real Mongoose query middleware with a mocked collection method to verify timestamps and update validation. It never opens a database connection or proves persistence.
-- `server/test/delete-agent.test.js` uses real HTTP routing and middleware with a mocked `Agent.findByIdAndDelete()` query. It verifies the targeted ID, projection, empty 204 response, malformed/uppercase IDs, missing records, safe 500 errors, and that neither a full-list query nor bulk deletion is used. No stored records are deleted by these tests.
-- `server/test/crud-flow.test.js` runs all five endpoints against one fresh, test-local mocked store with deterministic IDs/timestamps. It checks how changes affect later requests. It does not reimplement MongoDB search/filter behavior; the existing list tests continue checking that query contract separately.
-- `server/test-support/crudFlow.js` contains shared HTTP assertions, including readback after updates, no changes after rejected writes, an unrelated record surviving deletion, and missing-record responses after deletion. Both the normal lifecycle test and optional real integration script run these same assertions.
-- `server/test-support/fakeRedis.js` contains the existing list-test fake, now reused by list and detail tests. Each call creates its own storage, clock, and mocked GET/SET functions, so tests share no records and expiry needs no real-time sleep.
-- `server/test/cache-invalidation.test.js` tests mutation ordering, all list variants, detail deletion, failure/bypass behavior, late fills, generation initialization/eviction, overlapping invalidations, and bounded waits. `crud-flow.test.js` runs the existing HTTP lifecycle twice, with caching unavailable and with fake Redis enabled.
-- `server/test/integration-script.test.js` starts the optional CRUD and Redis scripts without their explicit test URLs and verifies that they stop with clear messages. It does not start either service or read private configuration.
-- `server/scripts/verify-crud.js` is an optional real MongoDB check using a separate connection and a randomly named disposable collection. It redirects all model calls used by the five endpoints to that isolated model, restores the original methods, and cleans up. It reads only `FLEETFLOW_TEST_MONGODB_URI` from the process environment and never imports the `.env` loader.
-- `server/scripts/verify-create-agent.js` is a separate, opt-in Atlas integration check. It redirects model calls to a clone of the same schema in a randomly named disposable collection, performs real writes and direct database reads, checks a duplicate, removes that collection, and closes connections. It does not insert into the normal agents collection and is not run by `npm test`.
-
-The error middleware uses Express's four-parameter convention and runs last, as described in the [official Express error-handling guide](https://expressjs.com/en/guide/error-handling/). Node's [watch-mode documentation](https://nodejs.org/api/cli.html#--watch) explains the development runner.
-
-## Health endpoint and errors
-
-With the server running on the template's port, check it from another PowerShell terminal (replace 5000 if you selected another port):
-
-```powershell
-Invoke-RestMethod -Uri http://localhost:5000/api/health
-```
-
-`GET /api/health` returns HTTP **200** with:
-
-```json
-{
-  "success": true,
-  "message": "FleetFlow API is running"
-}
-```
-
-An unknown route, such as `GET /api/unknown`, returns HTTP **404** with:
-
-```json
-{
-  "success": false,
-  "message": "Route not found"
-}
-```
-
-Other errors use the same `success: false` and `message` fields. Malformed JSON returns `Invalid JSON request body` (400); a body exceeding the JSON parser's default 100 KB limit returns `Request body is too large` (413); unexpected failures return `Internal server error` (500). These existing responses are preserved.
-
-## Create a delivery agent
-
-**`POST /api/agents`**, with `Content-Type: application/json`:
-
-```json
-{
-  "agentId": "AGENT-001",
-  "fullName": "Alex Morgan",
-  "phone": "+1 202-555-0142",
-  "email": "alex@example.com",
-  "serviceArea": "Central"
-}
-```
-
-All five fields above are required strings. Leading/trailing whitespace is removed and blank strings are rejected. Email must have valid syntax and is saved lowercase. `status` is optional; when absent, the existing Mongoose model supplies `active`. Explicit status accepts only `active` or `inactive` after trimming. Nulls, numbers, objects in string fields, invalid status/email values, and unexpected keys are rejected. In particular, callers cannot set `_id`, `id`, `createdAt`, `updatedAt`, or `__v`. The request must be an object, not an array.
-
-The business `agentId` is required from the caller, as requested for Step 7. The generated database identifier uses Mongoose's built-in ObjectId behavior rather than a counter or custom ID generator.
-
-Successful creation returns **201 Created**, for example (ID and timestamps are illustrative):
-
-```json
-{
-  "success": true,
-  "message": "Agent created successfully",
-  "data": {
-    "id": "68f2d0000000000000000001",
-    "agentId": "AGENT-001",
-    "fullName": "Alex Morgan",
-    "phone": "+1 202-555-0142",
-    "email": "alex@example.com",
-    "serviceArea": "Central",
-    "status": "active",
-    "createdAt": "2026-10-18T00:00:00.000Z",
-    "updatedAt": "2026-10-18T00:00:00.000Z"
-  }
-}
-```
-
-Only these public fields are returned; Mongoose internals such as `__v` are omitted. An invalid email, for example, returns **400** using the existing format:
-
-```json
-{
-  "success": false,
-  "message": "Request validation failed",
-  "details": [
-    { "section": "body", "field": "email", "message": "Invalid format" }
-  ]
-}
-```
-
-An unexpected key is reported at `(root)` with `Unexpected fields`. A duplicate trimmed `agentId` returns **409** without echoing database details:
-
-```json
-{
-  "success": false,
-  "message": "An agent with this agentId already exists"
-}
-```
-
-Unexpected persistence or index-initialization errors use the existing generic **500** response. Phone/email are not unique. List, single-agent GET, PATCH, and DELETE endpoints are documented below.
-
-Run `node --test test/create-agent.test.js` inside `server/` for the isolated route tests. To separately verify real persistence using private local configuration, run `node scripts/verify-create-agent.js`. It requires Atlas read/write/index/drop permissions for its disposable collection. The script creates one test document, verifies it directly from MongoDB, confirms duplicate rejection, then drops only its owned `fleetflow_step7_check_` collection. A forced timeout or cleanup error is reported; check for a leftover collection with that prefix in that case. The normal model may also initialize its collection/indexes through the usual startup flow, but integration test records go only into the disposable collection.
-
-## List delivery agents
-
-**`GET /api/agents`** returns HTTP **200** with the current page of public agent records and pagination metadata. It does not require a request body.
-
-| Query parameter | Default | Rules and behavior |
-| --- | --- | --- |
-| `page` | `1` | Positive decimal integer, supplied as one string. Whitespace is trimmed; zero, negative values, fractions, scientific notation, leading zeros, blank values, and unsafe integers/offsets are rejected. Omit the parameter to use its default. |
-| `limit` | `10` | Positive decimal integer with a maximum of **100**; follows the same string-format rules as page. Values above 100 are rejected rather than silently reduced. |
-| `search` | No search | Trimmed text, maximum **200 characters**. Case-insensitive literal substring matching across `agentId`, `fullName`, `phone`, `email`, and `serviceArea`. Regex special characters are escaped. Blank text is ignored. |
-| `status` | No filter | Only `active` or `inactive`, after trimming. Blank or other values are rejected. |
-| `serviceArea` | No filter | Exact, case-sensitive match after trimming. Blank text is ignored. Special characters have no regex or query-operator meaning. |
-
-Repeated parameters, bracket/nested input, and unknown parameters return the existing HTTP **400** validation response, with `details[].section` set to `query`. Query values are never passed directly into MongoDB as a user-supplied filter object.
-
-Example requests (URL-encode spaces and special characters in values):
-
-```text
-GET /api/agents
-GET /api/agents?page=2&limit=25
-GET /api/agents?search=alex
-GET /api/agents?status=active&serviceArea=Central
-GET /api/agents?search=alex&status=active&serviceArea=Central&page=2&limit=5
-```
-
-Search matches any of its five fields using OR. Status and service-area filters must both match when supplied, and are combined with search using AND. Results are sorted by `createdAt` descending, then `_id` descending to break timestamp ties deterministically.
-
-Example response with one matching record (ID and dates are illustrative):
-
-```json
-{
-  "success": true,
-  "message": "Agents retrieved successfully",
-  "data": [
-    {
-      "id": "68f2d0000000000000000001",
-      "agentId": "AGENT-001",
-      "fullName": "Alex Morgan",
-      "phone": "+1 202-555-0142",
-      "email": "alex@example.com",
-      "serviceArea": "Central",
-      "status": "active",
-      "createdAt": "2026-10-18T00:00:00.000Z",
-      "updatedAt": "2026-10-18T00:00:00.000Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 10,
-    "total": 1,
-    "totalPages": 1
-  }
-}
-```
-
-`data` uses the same public fields as create. `total` counts all matching records before pagination; `totalPages` is `Math.ceil(total / limit)`. No matches produce `data: []`, `total: 0`, and `totalPages: 0`. A page beyond the last page remains 200 with an empty array, the requested page/limit, and the actual matching totals; it is not silently moved to another page.
-
-The database performs sorting and pagination using `skip((page - 1) * limit)` and `limit(limit)`. The controller does not fetch all agents and slice them in JavaScript. The find query selects only public fields and uses `lean()` to return plain records for the bounded current page; the formatter converts each record to the public response shape. A separate `countDocuments()` query uses the same filter. These independent reads are not a transactional snapshot: simultaneous writes may briefly make totals and page contents differ. Unexpected find/count errors go to the unchanged central handler and return a generic 500. See the [Mongoose query documentation](https://mongoosejs.com/docs/api/query.html).
-
-Run `node --test test/list-agents.test.js test/create-agent.test.js` inside `server/` for focused list/create regression tests, or `npm test` for the full suite. Step 8 tests mock database calls and assert query construction and HTTP behavior. No real database check was run for Step 8, and `server/.env` was not read or changed.
-
-## Agent-list caching
-
-The list cache applies only to **`GET /api/agents`** (including its normal trailing-slash form). Input is validated first. A successful Redis hit returns the same JSON success envelope, public agent fields, and pagination metadata as a MongoDB response; neither `Agent.find()` nor `Agent.countDocuments()` runs on a hit. The individual-agent endpoint uses its own separate detail cache, described below.
-
-On a miss, the controller runs the existing MongoDB list/count queries, formats the public response, and stores that whole JSON response in Redis. Valid empty results and pages beyond the last page are cached too. Invalid query requests and database failures are never cached. Missing Redis, command errors/timeouts, malformed JSON, invalid public fields, or mismatched pagination cause a miss. Redis write failures still return the successful MongoDB result. Warnings never include raw errors, cached data, search values, keys, or credentials.
-
-Keys have the form `fleetflow:agents:list:v2:<generation>:<sha256>`. The generation is read from Redis for each request. The hash still uses a fixed-order JSON object containing **`page`, `limit`, `search`, `status`, and `serviceArea`** after the existing query schema has applied defaults and trimming. Empty optional text is equivalent to omission. Query-string ordering does not matter. Different response-affecting values have separate keys; service-area case is preserved because its filter is case-sensitive. Search case is also preserved, so equivalent searches with different letter case can occupy separate entries. Hashing keeps raw contact/search text out of key names; it does not encrypt the response value.
-
-For example, `/api/agents` and `/api/agents?limit=10&page=1` share a cache entry. `/api/agents?page=2` and `/api/agents?status=inactive` use different entries. All filtering and pagination behavior remains the same as documented above.
-
-Each successful cache write uses one Redis SET with an `EX` expiration of `AGENT_LIST_CACHE_TTL_SECONDS`, default **60 seconds**. Redis expires the entry automatically; the next request queries MongoDB and fills it again. Hits do not refresh the TTL. Each Redis operation now has an application deadline of one second in addition to the [node-redis command-queue timeout](https://github.com/redis/node-redis/blob/master/docs/command-options.md#timeout). Normal hits use a generation GET and a payload GET; misses add a payload SET. First-time generation initialization adds a conditional SET and another GET. These sequential operations can add latency during an outage; MongoDB time is additional. A timeout returns control without retrying and does not guarantee that a command already sent to Redis was cancelled.
-
-Successful create, update, and delete operations now rotate the shared generation before returning their existing success responses. Every old list query variant becomes unreachable, including previously cached empty lists and pagination totals. Old entries retain their original TTL and expire naturally. Simultaneous misses may still each query MongoDB; no locking or request coalescing is introduced.
-
-The template now includes safe `AGENT_LIST_CACHE_TTL_SECONDS=60`. Existing `.env` files need no change to use the default. To choose a different lifetime later, configure the variable privately as a whole number from 1 to 86400 and restart the backend; blank or invalid values fail startup validation without echoing the value. Keep the real `.env` untracked. The normal test suite never loads it.
-
-Run in `server/`:
-
-```powershell
-node --test test/list-agents.test.js test/env.test.js test/startup.test.js
-npm test
-```
-
-Caching tests use fake Redis and mocked MongoDB. They verify serialization, key construction, skipped database calls, the exact expiry command option, and fake-clock expiry at 60 seconds. They do not claim live Redis expiry or real MongoDB persistence coverage. The project owner's earlier PING/PONG check establishes real Redis connectivity only.
-
-## Get a single delivery agent
-
-**`GET /api/agents/:id`** retrieves one record. Step 9's roadmap specifies `:id` without explicitly naming the underlying identifier. To follow the existing response convention, this endpoint uses the public `id` from create/list responses: MongoDB's `_id` represented as a 24-character hexadecimal string. It does **not** look up the separate business `agentId` or fall back to that field.
-
-For example, use the returned `id` in:
-
-```text
-GET /api/agents/68f2d0000000000000000001
-```
-
-The existing Zod middleware validates route `params` before any lookup. Uppercase or lowercase hexadecimal characters are accepted. Business IDs such as `AGENT-001`, wrong-length strings, non-hex characters, and whitespace-padded IDs return 400 without querying MongoDB. An absent `id` fails the parameter schema when it is applied; at the HTTP routing level, `GET /api/agents` and `GET /api/agents/` remain the existing list endpoint rather than a detail request with a missing parameter.
-
-On a cache miss, the controller uses a targeted `findById()` query rather than fetching the list and filtering in JavaScript. A cache hit skips that query. The endpoint keeps the existing public-field formatter and returns **200** with this structure (ID/dates illustrative):
-
-```json
-{
-  "success": true,
-  "message": "Agent retrieved successfully",
-  "data": {
-    "id": "68f2d0000000000000000001",
-    "agentId": "AGENT-001",
-    "fullName": "Alex Morgan",
-    "phone": "+1 202-555-0142",
-    "email": "alex@example.com",
-    "serviceArea": "Central",
-    "status": "active",
-    "createdAt": "2026-10-18T00:00:00.000Z",
-    "updatedAt": "2026-10-18T00:00:00.000Z"
-  }
-}
-```
-
-Malformed ID (**400 Bad Request**):
-
-```json
-{
-  "success": false,
-  "message": "Request validation failed",
-  "details": [
-    { "section": "params", "field": "id", "message": "Invalid format" }
-  ]
-}
-```
-
-A valid ObjectId with no matching record returns **404 Not Found**:
-
-```json
-{
-  "success": false,
-  "message": "Agent not found"
-}
-```
-
-Unexpected database failures use the unchanged centralized **500** response, `{"success":false,"message":"Internal server error"}`. Database internals, metadata such as `__v`, and stack traces are not included. An unknown route still returns `Route not found` with 404; a malformed ID on this newly implemented route now correctly returns the documented 400. See the [Mongoose findById documentation](https://mongoosejs.com/docs/api/model.html#Model.findById()).
-
-Run `node --test test/get-agent.test.js test/create-agent.test.js test/list-agents.test.js` inside `server/` for focused detail/create/list checks. The database methods are mocked; these checks do not claim live MongoDB integration coverage.
-
-## Individual-agent detail caching
-
-**`GET /api/agents/:id`** checks Redis only after the existing ObjectId validation passes. Its key is `fleetflow:agents:detail:v2:<lowercase MongoDB ObjectId>`. For example, the ID `68f2d0000000000000000001` uses `fleetflow:agents:detail:v2:68f2d0000000000000000001`. Uppercase and lowercase hexadecimal forms share one key. Different agents and list requests have separate keys; business `agentId` values are still not accepted as route IDs. Redis stores an internal `{ generation, response }` wrapper; clients still receive the unchanged public response only.
-
-A valid cache hit returns the complete existing success response (`success`, `message`, and public `data`) without calling MongoDB. On a miss, the existing targeted lookup runs. A found agent is formatted, cached as JSON, and returned with HTTP 200. Missing agents still return the existing JSON 404 and are **never cached**; validation failures and database errors are not cached either.
-
-The service reuses `getRedisClient()` and the existing **`AGENT_LIST_CACHE_TTL_SECONDS`** setting through Express `app.locals.agentListCacheTtlSeconds`. Despite its original list-specific name, the variable now controls both caches. No new variable or private configuration change is required. It defaults to **60 seconds** and retains its existing validation range of 1-86400. Redis SET attaches an `EX` expiry atomically; reads do not extend the TTL. Cached details expire independently from cached list pages.
-
-Missing Redis, read errors/timeouts, malformed JSON, invalid cached fields, or a cached response whose agent ID differs from the requested ID all fall back to MongoDB. Redis write failure still returns the found agent successfully. Like the list cache, GET/SET commands have a one-second timeout and warnings contain fixed text only, without keys, URLs, cached contact data, stack traces, or raw errors.
-
-Successful mutations rotate the shared generation, and each also deletes the affected detail key. A detail entry with an earlier generation is rejected even if an older in-flight lookup writes it back after deletion. Rotating the shared generation conservatively invalidates other agents' details as well; this favors consistency over retaining every unrelated hit. PATCH and DELETE responses themselves remain uncached. Simultaneous misses are not coalesced.
-
-Run inside `server/`:
-
-```powershell
-node --test test/get-agent.test.js test/list-agents.test.js
-npm test
-```
-
-Tests use mocked MongoDB and the shared fake Redis, including its deterministic expiry clock. They verify cache hits bypass lookups, miss serialization, identity checks, 60-second default expiry, configured TTL, safe Redis fallback, and no negative/error caching. These tests do not prove live Redis expiry or database persistence. The earlier real Redis Cloud PING/PONG is connectivity evidence only.
-
-## Invalidation after successful mutations
-
-Once MongoDB reports a successful create, update, or delete, the controller awaits `agentCacheState.invalidate(id)` before returning its existing 201, 200, or empty 204 response. Failed validation, duplicate-key errors, other database errors, and missing update/delete targets do not invalidate anything.
-
-Invalidation performs exactly two Redis operations, attempted together: **SET** a new random generation at `fleetflow:agents:cache:v2:generation`, and **DEL** the affected agent's detail key. It uses no KEYS, SCAN, wildcard deletion, FLUSHDB, or loop over stored pages. Work stays constant regardless of how many page/search/filter combinations are cached. Each operation has a one-second deadline; neither command failure prevents the other from being attempted.
-
-Think of the generation as the current edition of the agent cache. Every list read uses that edition in its key. Detail entries carry it alongside their response. A new edition makes all old editions unusable immediately for subsequent requests when Redis invalidation succeeds. The old list entries are left to expire under the unchanged TTL, so no large deletion job is needed.
-
-Reads capture the generation **before** querying MongoDB and keep that same generation when filling the cache. A read that finishes late therefore cannot populate a usable stale entry in a newer edition. In-flight requests that began before invalidation can still finish with their earlier result; this is not a transaction across MongoDB, Redis, and all active HTTP requests.
-
-The generation key has no TTL and holds only one small token. If it is missing or evicted, bounded GET/SET-NX/GET initialization chooses a fresh UUID instead of reusing a fixed default. Concurrent initializers converge on the Redis value. An unavailable or unreadable generation causes MongoDB fallback. Generations are not memoized in process, so healthy instances observe one another's rotations. The new v2 prefixes also prevent this code from reading legacy v1 entries; those entries expire normally. Retire older application versions that do not implement invalidation when deploying this change.
-
-Redis absence, errors, or timeouts do **not** turn a committed MongoDB mutation into an API failure. On invalidation failure this process bypasses cache reads and writes until a later successful invalidation safely restores caching. A concurrent success that started before a failure cannot accidentally clear that bypass. Fixed warning messages never include keys, URLs, credentials, documents, or raw exceptions.
-
-This remains best-effort invalidation across two services, without distributed transactions or a durable retry queue. Other instances cannot learn about a failed invalidation while Redis is unavailable, and the bypass flag does not survive process restarts. In those cases, remaining TTL bounds stale entries; a successful later rotation restores a shared fresh generation. Changes made directly in MongoDB outside these endpoints are likewise limited by TTL. These limitations do not change normal mutation response contracts.
-
-Run inside `server/`:
-
-```powershell
-node --test test/cache-invalidation.test.js test/crud-flow.test.js test/get-agent.test.js test/list-agents.test.js
-npm test
-```
-
-Tests use fake Redis and mocked MongoDB, including the cache-enabled HTTP CRUD flow. They verify successful and failed mutations, all query variants, detail deletion, unrelated-key preservation, late fills, generation eviction/concurrent initialization, failure recovery, concurrent failure bypass, and stalled-command deadlines. They do not establish live Redis/MongoDB invalidation coverage. The earlier PING/PONG check establishes connectivity only.
-
-## Update a delivery agent
-
-**`PATCH /api/agents/:id`** uses MongoDB's `_id`, exposed as the public `id` in API responses, exactly like the single-agent GET endpoint. It never looks up the business `agentId` instead.
-
-Send `Content-Type: application/json` and at least one editable field: `fullName`, `phone`, `email`, `serviceArea`, or `status`. All are optional individually. Strings are trimmed, email is lowercased and syntax-checked, and status allows only `active` or `inactive`. Blank strings, nulls, incorrect types, arrays, empty objects, and unknown fields are rejected. The business `agentId`, database `_id`/`id`, `createdAt`, `updatedAt`, and `__v` cannot be changed through this endpoint. Caller-supplied MongoDB operators are also rejected.
-
-Example partial update:
-
-```http
-PATCH /api/agents/68f2d0000000000000000001
-Content-Type: application/json
-
-{"serviceArea":"North","status":"inactive"}
-```
-
-Successful response (**200**, illustrative values):
-
-```json
-{
-  "success": true,
-  "message": "Agent updated successfully",
-  "data": {
-    "id": "68f2d0000000000000000001",
-    "agentId": "AGENT-001",
-    "fullName": "Alex Morgan",
-    "phone": "+1 202-555-0142",
-    "email": "alex@example.com",
-    "serviceArea": "North",
-    "status": "inactive",
-    "createdAt": "2026-10-18T00:00:00.000Z",
-    "updatedAt": "2026-10-18T01:00:00.000Z"
-  }
-}
-```
-
-Only supplied editable fields are set; omitted fields keep their stored values, including an existing inactive status. No create defaults are inserted. Mongoose preserves `createdAt` and sets `updatedAt` for the update, including a request that supplies the same value already stored. The targeted update never creates a missing record.
-
-| Condition | Response |
-| --- | --- |
-| Malformed ObjectId | **400** `Request validation failed`, with `details` identifying `params.id` |
-| Invalid or missing update data | **400** `Request validation failed`, with safe body field details; empty/unknown-field issues use `(root)` |
-| Valid ObjectId without a matching agent | **404** `{"success":false,"message":"Agent not found"}` |
-| MongoDB duplicate-key error (11000) | **409** `{"success":false,"message":"Agent update conflicts with an existing record"}` |
-| Unexpected database failure | **500** `{"success":false,"message":"Internal server error"}` |
-
-Only `agentId` has a unique schema index, and it is immutable through PATCH. Phone/email remain shareable, so normal edits do not introduce a new uniqueness rule. The defensive 409 mapping handles duplicate-key errors without revealing index names, submitted values, or driver details. Validation uses the existing error format documented below; unexpected failures go to the same centralized handler.
-
-Run `node --test test/update-agent.test.js` inside `server/` for the focused tests, or `npm test` for all regressions. Database calls are mocked. The timestamp test checks actual Mongoose query middleware before a mocked collection call; no real update persistence or database uniqueness enforcement was integration-tested in Step 10. Private environment configuration is not needed or read by these checks.
-
-## Delete a delivery agent
-
-**`DELETE /api/agents/:id`** permanently removes one agent by MongoDB's `_id`, exposed as the public `id` in create/list/detail/update responses. The separate business `agentId` is not accepted as a substitute. No request body is needed.
-
-Example request (use the actual returned database ID):
-
-```http
-DELETE /api/agents/68f2d0000000000000000001
-```
-
-Success returns **204 No Content** with an empty body, as explicitly required by Step 11. There is no JSON confirmation or deleted identifier in the response; clients should check the status and must not call `response.json()` on a successful deletion.
-
-The existing ObjectId parameter schema accepts exactly 24 hexadecimal characters, including uppercase hex. Malformed IDs, whitespace-padded IDs, and business IDs such as `AGENT-001` are rejected before any deletion. The controller uses one targeted `findByIdAndDelete()` operation. It does not retrieve the list, perform bulk deletion, or keep a soft-deleted record.
-
-| Condition | Response |
-| --- | --- |
-| Matching agent deleted | **204**, empty body |
-| Malformed ObjectId | **400** `Request validation failed`, with the standard `details` entry for `params.id` and `Invalid format` |
-| Valid ObjectId without a matching agent | **404** `{"success":false,"message":"Agent not found"}` |
-| Unexpected database failure | **500** `{"success":false,"message":"Internal server error"}` |
-
-A later request to delete an already deleted record returns 404 when MongoDB reports no match. An absent ID (`DELETE /api/agents`) or an unknown nested path still returns the existing 404 `Route not found`; neither is a bulk-delete endpoint. Errors use the unchanged central handler and do not expose database details or stack traces.
-
-Run `node --test test/delete-agent.test.js` inside `server/` for focused checks, or `npm test` for all server regressions. Database deletion is mocked: these tests verify HTTP behavior and query construction, not live persistence. No Atlas integration script is run, and private environment configuration is not read or changed.
-
-## Test organization and coverage audit
-
-Run these commands inside `server/`:
-
-```powershell
-npm test
-# Only the new Step 12 checks:
-node --test test/crud-flow.test.js test/integration-script.test.js
-# All five endpoint suites plus the connected lifecycle:
-node --test test/create-agent.test.js test/list-agents.test.js test/get-agent.test.js test/update-agent.test.js test/delete-agent.test.js test/crud-flow.test.js
-```
-
-The suite uses Node's built-in test runner, assertions, test-scoped mocks, and native fetch. HTTP tests listen on an available loopback port and close their servers afterward. Each lifecycle test owns its records and deterministic clock; no test depends on data or execution order from another test. No new test dependency is needed. `npm test` does not require Atlas, Redis, external network access, or private `.env` configuration. Environment-loader tests use disposable fake files, not `server/.env`.
-
-The Step 12 audit preserved existing focused tests and added checks for interactions across requests:
-
-| Coverage | Test files and evidence |
-| --- | --- |
-| Create success/defaults/normalization, required fields, invalid bodies, duplicate 409, safe 500 | `create-agent.test.js`; schema rules in `agent.test.js` |
-| List pagination/defaults/maximum, search escaping, combined filters, empty/out-of-range pages, query errors; cache hits/misses, keys, expiry options, safe Redis fallback | `list-agents.test.js` asserts MongoDB queries and uses fake Redis for caching |
-| Single-agent success, malformed/uppercase IDs, valid missing IDs, targeted lookup, safe 500; detail cache hits/misses, keys, TTL, safe fallback, no negative/error caching | `get-agent.test.js`, using shared `test-support/fakeRedis.js` |
-| Partial update, normalization, omitted fields, immutable fields, empty/invalid bodies, 404/409/500 | `update-agent.test.js`, including real Mongoose timestamp/validation middleware against a mocked collection |
-| Delete 204 with empty body, invalid/missing IDs, targeted operation, safe 500 | `delete-agent.test.js` |
-| Health/unknown routes, JSON parser 400/413, central error handling, configuration/startup failures | `create-agent.test.js`, `request-errors.test.js`, `env.test.js`, `db.test.js`, `startup.test.js` |
-| Connected create/list/detail/update/delete flow; failed writes leave records unchanged; update readback; surviving unrelated record; GET/PATCH/repeated DELETE return 404 after deletion | New `crud-flow.test.js`, using `test-support/crudFlow.js` |
-| Optional integration script refuses missing explicit configuration | New `integration-script.test.js` |
-
-These HTTP tests integrate the actual app, routes, validation, controllers, model formatting, and error middleware with mocked database operations. The lifecycle mock simulates duplicate rejection and storage; it does not establish that a real database enforces unique indexes or persists changes. Search/filter/pagination tests inspect query construction, rather than running MongoDB's query engine. No production API behavior was changed for Step 12.
-
-### Optional real MongoDB CRUD check
-
-Use a MongoDB test database with permission to create/read/write/index/drop a disposable collection. Configure `FLEETFLOW_TEST_MONGODB_URI` privately in the process environment through your local shell or secret manager. The script does not read `server/.env`, does not fall back to `MONGODB_URI`, and stops before connecting when its explicit variable is missing. Do not put credentials in tracked files, command examples, or chat.
-
-```powershell
-# Configure FLEETFLOW_TEST_MONGODB_URI privately before running this command.
-node scripts/verify-crud.js
-```
-
-The script connects before opening its loopback HTTP listener, then runs the shared CRUD flow through the real app and Mongoose against a uniquely named `fleetflow_step12_check_` collection. The separate connection/model prevents initializing or writing the normal agents collection. This checks real create/list/detail/update/delete behavior, normalization, duplicate rejection, invalid-write protection, update readback, empty lists, and missing records after deletion. It does not add live search/filter/pagination coverage or replace the existing startup tests.
-
-The script drops only its own randomly named collection and closes the server and connection in cleanup. A 45-second deadline stops a hung run. Forced termination or failed cleanup may leave that collection behind; the script reports its name for private inspection. Driver errors and raw assertion details are hidden. The script is separate from `npm test` and has **not been run against a live database in Step 12**; only its no-configuration guard and syntax were checked. The older Step 7 create script remains available and loads local configuration when explicitly invoked; it was not run in this step.
-
-## Request validation and centralized errors
-
-`validateRequest(schema, section = 'body')` supports `body`, `params`, and `query`. Add it before a future route handler and read `request.validated.body`, `.params`, or `.query` in that handler. For example, `validateRequest(z.object({ label: z.string().trim().min(1) }), 'body')` validates a body with a nonblank label. This is a usage example, not an implemented endpoint. Chain middleware calls to validate several sections; each keeps the other parsed sections intact. Handlers should use parsed data instead of assuming the original request data was transformed.
-
-The helper uses `safeParseAsync()` so synchronous schemas, asynchronous refinements, defaults, and transforms work. The supplied schema controls coercion and unknown-key behavior. Original request sections are preserved, including Express 5's read-only query getter. Invalid input calls `next(error)` and skips the route; a programming exception in a refinement is forwarded by Express 5 as an unexpected error, rather than silently treated as bad user input. See [Zod's parsing documentation](https://zod.dev/basics).
-
-Zod validation failures return HTTP 400 with this structure:
-
-```json
-{
-  "success": false,
-  "message": "Request validation failed",
-  "details": [
-    {
-      "section": "body",
-      "field": "profile.name",
-      "message": "Value is too short or below the minimum"
-    }
-  ]
-}
-```
-
-`details` identifies the section, a dotted field path, and a safe message. Root-level issues use `(root)`. Errors from direct Zod parsing use section `request` because no middleware section is attached. Messages come from fixed mappings of Zod issue codes: missing/type, size, format, allowed-value, and unknown-field errors get readable descriptions; other issue codes get `Invalid value`. Phone-format errors in the request body use a fixed explanation of the accepted syntax. Raw Zod messages, submitted values, stack traces, and extra issue metadata are never serialized or logged. Other wording remains generic, including for custom refinements.
-
-For an expected application failure, future route code may throw `new ApiError(409, 'Requested operation conflicts with current state')`. Status must be an integer from 400 to 599. Messages for 4xx errors are public text: write a fixed, safe explanation rather than copying request values or driver errors. Expected 5xx application errors retain their status but use the generic `Internal server error` message. Ordinary unexpected errors always become 500, even if they carry `statusCode` or `expose` properties. Server failures log a fixed message without the raw error.
-
-Error responses retain the `success: false` / `message` envelope; only request-validation failures add `details`. After headers have been sent, the handler forwards the original error to Express without attempting another response. Database/startup failures remain in the existing startup code, outside this HTTP handler. The create route now supplies its schema and duplicate-key mapping, while reusing these shared components unchanged.
 
 ## Step 2 verification
 
@@ -1568,3 +1177,5 @@ Checks on October 19, 2026:
 These are isolated automated checks, not live MongoDB index/query verification, Redis Cloud or multi-process deployment testing, or interactive/deployed browser acceptance. The reported production first-load failure remains unproven locally. No live services or deployment logs were contacted, and `server/.env` was never read, printed, staged, or modified. Runtime behavior, API contracts, schemas, phone validation, TTL/configuration, loading/error UI, hosting, and dependencies are unchanged. Nothing is staged or committed. Step 25's existing roadmap status is preserved; Steps 28-30 remain PENDING.
 
 Suggested commit after review: `test: cover CRUD validation and cache edge cases`
+
+</details>
