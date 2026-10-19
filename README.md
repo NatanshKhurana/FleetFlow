@@ -18,6 +18,7 @@ This is an evaluation project with automated coverage, not a claim of production
 - [Step 28 documentation verification](#step-28-documentation-verification)
 - [Step 29 technical audit](#step-29-technical-audit)
 - [Step 30 release readiness](#step-30-release-readiness)
+- [Post-roadmap theme support](#post-roadmap-theme-support)
 - [Historical development record](#historical-development-record)
 
 ## Features and status
@@ -31,6 +32,7 @@ This is an evaluation project with automated coverage, not a claim of production
 | Delete | Confirmation from the list or detail page. List deletion reloads the applied query; detail deletion returns to Agents. An emptied later page offers recovery to page one. |
 | Request feedback | Initial loading, empty success, missing agents, safe errors, and manual retry/refresh. Same-query refreshes retain labelled prior data; changed filters/pages clear mismatched rows. |
 | Request safety | Read cancellation and stale-response protection; retained failed create/edit drafts; guarded duplicate submissions. Mutations are never automatically retried. A lost response can mean a write succeeded, so check the record before resubmitting. |
+| Themes | Dark by default; the header Dark/Light button switches instantly and saves an explicit preference in browser storage. All routes share the same palette. |
 | Responsive shell | Shared navigation, mobile menu, keyboard focus styles, horizontal table scrolling, and a native modal deletion dialog. Current interactive/browser acceptance is not covered by ordinary Node tests. |
 
 | Roadmap steps | Status and evidence |
@@ -459,6 +461,18 @@ Public probes used a 15-second timeout and no credentials. Their successful resp
 Existing limitations remain: no authentication/authorization or rate limiting; lost mutation responses can require checking records before resubmission; overview/count reads and cross-store cache updates are nontransactional. See [troubleshooting and limitations](#troubleshooting-and-limitations) and the opt-in live scripts above. Complete Step 25's persistence/cache and deployed-browser checks separately before claiming end-to-end production acceptance.
 
 Only final status/verification documentation was updated. Earlier step records are preserved as historical evidence. Nothing was staged, committed, pushed, deployed, restarted, or reconfigured. Suggested commit after review: `chore: finalize FleetFlow release readiness`.
+
+## Post-roadmap theme support
+
+First-time visitors receive **Dark Mode**, regardless of operating-system preference. Use the **Dark/Light** Sun/Moon button in the header to switch without reloading. It is a native keyboard-operable button labelled "Color theme: Dark" or "Color theme: Light", with pressed state, visible focus outline, and fixed width; the header can wrap on narrow screens. Explicit choices persist in `localStorage` under `fleetflow.theme`. Invalid or unavailable storage defaults safely to dark; when saving is blocked, switching still works for the current page.
+
+A local blocking `public/theme.js` script sets the root `data-theme` before React starts; the HTML and CSS also default to dark to avoid an initial light flash. One shared store notifies only the theme control. Central semantic Tailwind/CSS tokens cover the shell/navigation, overview, list/filter/pagination, details, create/edit forms, delete dialog/backdrop, statuses, errors, empty/loading feedback, and native input color scheme. Switching does not remount routes, dispatch API requests, or clear drafts/filters/data.
+
+Verification: `node --test test/theme.test.js test/layout.test.js test/agent-detail.test.js` in `client/` passed **29 tests**; full `npm test` passed **115 tests**, all with zero failures/skips/cancellations. Eight new theme tests cover defaults, switching and actual click handlers, persistence, invalid/blocked storage, retained resources/drafts and request counts, route control markup, and palette contrast. An existing detail rendering assertion now expects the semantic text token; its field/timestamp/status checks remain intact. The initial full run caught that old color-class assertion (113 passed, 1 failed) before correction.
+
+`npm run build` passed with 2,080 modules transformed. `node --check` passed for `client/public/theme.js`, `client/test/theme.test.js`, and the changed `client/test/agent-detail.test.js`; `git diff --check` passed. Built output contains the bootstrap and both palettes. Token checks establish 4.5:1 text/status/button contrast and 3:1 input-border/focus contrast for the tested pairs; they are not a full accessibility audit. Browser automation reported no available browsers, so rendered visual quality, actual keyboard/focus interaction, native dropdown/dialog appearance, and viewport behavior still need manual browser checks in both modes. Responsive classes and accessible markup were inspected/tested, not visually verified. The backend suite was not rerun for this frontend-only feature; the full client suite includes existing isolated Express integration tests.
+
+No dependencies, backend/API behavior, environment files, hosting configuration, or original roadmap statuses were changed. Step 25 remains PENDING and Step 30 remains COMPLETE. Earlier verification records below retain their historical scope. Suggested commit: `feat: add persistent dark and light themes`. Changes remain uncommitted for review.
 
 ## Historical development record
 

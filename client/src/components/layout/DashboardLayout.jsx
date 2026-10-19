@@ -46,17 +46,17 @@ export default function DashboardLayout() {
   }, [navigationOpen]);
 
   return (
-    <div className="min-h-dvh bg-slate-50 text-slate-900 lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
-      <a href="#main-content" className="sr-only z-50 rounded-lg bg-emerald-800 px-4 py-3 text-sm font-medium text-white focus:not-sr-only focus:fixed focus:top-4 focus:left-4">Skip to content</a>
+    <div className="min-h-dvh bg-canvas text-heading lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <a href="#main-content" className="sr-only z-50 rounded-lg bg-primary-hover px-4 py-3 text-sm font-medium text-on-primary focus:not-sr-only focus:fixed focus:top-4 focus:left-4">Skip to content</a>
       <Sidebar />
       <div className="min-w-0">
         <Header title={title} navigationOpen={navigationOpen} menuButtonRef={menuButtonRef}
           onToggleNavigation={() => setNavigationOpen((open) => !open)} onNavigate={closeNavigation} />
         <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-7xl px-5 py-8 outline-none sm:px-8 sm:py-10 lg:px-10 lg:py-12">
           <div className="mb-7 sm:mb-9">
-            <p className="mb-2 text-xs font-medium tracking-wide text-slate-500">YOUR WORKSPACE</p>
+            <p className="mb-2 text-xs font-medium tracking-wide text-muted">YOUR WORKSPACE</p>
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">A clearer view of your delivery operations.</p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted">A clearer view of your delivery operations.</p>
           </div>
           <Outlet />
         </main>

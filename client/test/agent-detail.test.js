@@ -90,7 +90,7 @@ test('the table View link targets the public database ID and resolves to the ded
 test('successful detail rendering shows all public fields with labelled, responsive UTC timestamps and status', () => {
   const html = render({ status: 'success', data: { kind: 'found', agent: agent() } });
   for (const label of ['Full name', 'Agent ID', 'Phone', 'Email', 'Service area', 'Status',
-    'Created (UTC)', 'Last updated (UTC)', 'Database record ID']) assert.ok(html.includes(`<dt class="text-xs font-medium text-slate-500">${label}</dt>`), label);
+    'Created (UTC)', 'Last updated (UTC)', 'Database record ID']) assert.ok(html.includes(`<dt class="text-xs font-medium text-muted">${label}</dt>`), label);
   for (const text of ['Alex Test', 'AGENT-001', '+1 202-555-0142', 'alex@example.com', 'North', 'Active', id,
     'Oct 18, 2026', 'Oct 19, 2026']) assert.ok(html.includes(text), text);
   assert.match(html, /dateTime="2026-10-18T12:00:00.000Z"/i);

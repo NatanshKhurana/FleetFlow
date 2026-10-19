@@ -51,15 +51,15 @@ export default function AgentsPage() {
 
   return <div className="min-w-0 space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-4">
-      <p className="text-sm text-slate-500">Manage your delivery team in one place.</p>
+      <p className="text-sm text-muted">Manage your delivery team in one place.</p>
       <button ref={addButton} type="button" aria-expanded={formOpen} aria-controls="add-agent-panel"
         onClick={() => { setCreatedAgent(null); setNotice(''); setFormOpen(true); }}
-        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover">
         <Plus size={18} aria-hidden="true" />Add new agent
       </button>
     </div>
-    {notice && <p role="status" className="break-words rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{notice}</p>}
-    {createdAgent && <p role="status" className="break-words rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+    {notice && <p role="status" className="break-words rounded-xl border border-accent-edge bg-accent-soft p-4 text-sm text-accent">{notice}</p>}
+    {createdAgent && <p role="status" className="break-words rounded-xl border border-accent-edge bg-accent-soft p-4 text-sm text-accent">
       Agent {createdAgent.agentId} created successfully. Filters cleared to show the newest agents.
     </p>}
     <div id="add-agent-panel" hidden={!formOpen}>

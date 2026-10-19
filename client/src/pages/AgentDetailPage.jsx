@@ -36,7 +36,7 @@ function AgentDetailRequest({ id, editing }) {
     return <EditAgentForm agent={state.data.agent} onSaved={onSaved} onCancel={() => navigate(`/agents/${id}`)} />;
   }
   return <div className="min-w-0 space-y-5">
-    {typeof location.state?.agentNotice === 'string' && <p role="status" className="break-words rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{location.state.agentNotice}</p>}
+    {typeof location.state?.agentNotice === 'string' && <p role="status" className="break-words rounded-xl border border-accent-edge bg-accent-soft p-4 text-sm text-accent">{location.state.agentNotice}</p>}
     <AgentDetailContent state={state} onRetry={resource.load} onDelete={setDeletingAgent} />
     {deletingAgent && <DeleteAgentDialog key={deletingAgent.id} agent={deletingAgent} onDeleted={onDeleted} onClose={() => setDeletingAgent(null)} />}
   </div>;

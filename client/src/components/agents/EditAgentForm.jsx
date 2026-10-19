@@ -14,7 +14,7 @@ export default function EditAgentForm({ agent, onSaved, onCancel }) {
     if (['invalid', 'error'].includes(state.status)) errorSummary.current?.focus();
   }, [state.status, state.fieldErrors]);
   return <div className="min-w-0 space-y-5">
-    <Link to="/agents" className="inline-flex min-h-11 items-center text-sm font-medium text-emerald-700 underline underline-offset-4">Back to Agents</Link>
+    <Link to="/agents" className="inline-flex min-h-11 items-center text-sm font-medium text-accent underline underline-offset-4">Back to Agents</Link>
     <AddAgentFormView editing state={state} onChange={resource.setField} onSubmit={resource.submit}
       onCancel={onCancel} firstFieldRef={firstField} errorRef={errorSummary} />
   </div>;

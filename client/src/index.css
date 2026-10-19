@@ -1,5 +1,71 @@
 @import "tailwindcss";
 
+/* Semantic colors are shared by every route, form, status, and native dialog. */
+@theme inline {
+  --color-canvas: var(--theme-canvas);
+  --color-surface: var(--theme-surface);
+  --color-subtle: var(--theme-subtle);
+  --color-raised: var(--theme-raised);
+  --color-heading: var(--theme-heading);
+  --color-body: var(--theme-body);
+  --color-muted: var(--theme-muted);
+  --color-edge: var(--theme-edge);
+  --color-line: var(--theme-line);
+  --color-strong: var(--theme-strong);
+  --color-accent: var(--theme-accent);
+  --color-accent-soft: var(--theme-accent-soft);
+  --color-accent-edge: var(--theme-accent-edge);
+  --color-primary: #047857;
+  --color-primary-hover: #065f46;
+  --color-on-primary: #ffffff;
+  --color-danger: var(--theme-danger);
+  --color-danger-soft: var(--theme-danger-soft);
+  --color-danger-edge: var(--theme-danger-edge);
+  --color-danger-button: #b91c1c;
+  --color-danger-hover: #991b1b;
+  --color-overlay: #020617;
+}
+
+:root {
+  color-scheme: dark;
+  --theme-canvas: #0b1220;
+  --theme-surface: #111c2e;
+  --theme-subtle: #17243a;
+  --theme-raised: #22324a;
+  --theme-heading: #f1f5f9;
+  --theme-body: #cbd5e1;
+  --theme-muted: #94a3b8;
+  --theme-edge: #33445f;
+  --theme-line: #26364f;
+  --theme-strong: #64748b;
+  --theme-accent: #6ee7b7;
+  --theme-accent-soft: #12392f;
+  --theme-accent-edge: #28765b;
+  --theme-danger: #fca5a5;
+  --theme-danger-soft: #431f2b;
+  --theme-danger-edge: #a44c5b;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --theme-canvas: #f8fafc;
+  --theme-surface: #ffffff;
+  --theme-subtle: #f8fafc;
+  --theme-raised: #f1f5f9;
+  --theme-heading: #0f172a;
+  --theme-body: #334155;
+  --theme-muted: #596b82;
+  --theme-edge: #e2e8f0;
+  --theme-line: #f1f5f9;
+  --theme-strong: #7c8aa0;
+  --theme-accent: #047857;
+  --theme-accent-soft: #ecfdf5;
+  --theme-accent-edge: #a7f3d0;
+  --theme-danger: #b91c1c;
+  --theme-danger-soft: #fef2f2;
+  --theme-danger-edge: #fecaca;
+}
+
 @layer base {
   html {
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -8,13 +74,19 @@
   body {
     margin: 0;
     min-width: 320px;
+    background: var(--theme-canvas);
+    color: var(--theme-heading);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-emerald-600);
+    outline: 2px solid var(--theme-accent);
     outline-offset: 4px;
   }
 
+  input::placeholder {
+    color: var(--theme-muted);
+    opacity: 1;
+  }
   /* Allow long page text to wrap instead of stretching a narrow grid column. */
   h1, h2, p {
     overflow-wrap: anywhere;

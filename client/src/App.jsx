@@ -6,10 +6,10 @@ import AgentDetailPage from './pages/AgentDetailPage.jsx';
 
 function NotFoundPage() {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-10" aria-labelledby="not-found-title">
+    <section className="rounded-2xl border border-edge bg-surface p-6 sm:p-10" aria-labelledby="not-found-title">
       <h2 id="not-found-title" className="text-2xl font-semibold tracking-tight">This page isn't here.</h2>
-      <p className="mt-3 text-sm leading-6 text-slate-500">Head back to your FleetFlow workspace to continue.</p>
-      <Link to="/" className="mt-6 inline-flex rounded-lg text-sm font-semibold text-emerald-700 underline underline-offset-4">
+      <p className="mt-3 text-sm leading-6 text-muted">Head back to your FleetFlow workspace to continue.</p>
+      <Link to="/" className="mt-6 inline-flex rounded-lg text-sm font-semibold text-accent underline underline-offset-4">
         Return to Overview
       </Link>
     </section>
