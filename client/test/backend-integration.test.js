@@ -11,6 +11,7 @@ import { agentListCache, createAgentListCache } from '../../server/src/services/
 import { agentDetailCache, createAgentDetailCache } from '../../server/src/services/agentDetailCache.js';
 import { createAgentsResource } from '../src/state/agentsResource.js';
 import { createAgentResource } from '../src/state/createAgentResource.js';
+import { createRequestResource } from '../src/state/requestResource.js';
 import { createEditAgentResource, createDeleteAgentResource } from '../src/state/agentMutationResources.js';
 
 // Only storage is simulated. Requests cross Axios, Vite's proxy, Express routes,
@@ -151,5 +152,82 @@ for (const cacheEnabled of [false, true]) {
       assert.ok(redis.get.mock.callCount() > 0);
       assert.ok(redis.set.mock.callCount() > 0);
     }
+
+    await t.test('confirmed writes survive failed follow-up GETs and read retries send no mutations', async (subtest) => {
+      let failList = true;
+      let failDetail = false;
+      const originalFind = Agent.find;
+      const originalDetail = Agent.findById;
+      subtest.mock.method(Agent, 'find', (...args) => {
+        if (failList) throw new Error('private list read failure');
+        return originalFind(...args);
+      });
+      subtest.mock.method(Agent, 'findById', (...args) => {
+        if (failDetail) throw new Error('private detail read failure');
+        return originalDetail(...args);
+      });
+      subtest.mock.method(console, 'error', () => {});
+      const methods = [];
+      const interceptor = api.interceptors.request.use((config) => {
+        methods.push(config.method.toUpperCase());
+        return config;
+      });
+      subtest.after(() => api.interceptors.request.eject(interceptor));
+      const mutations = () => methods.filter((method) => method !== 'GET');
+      let saved;
+      const creation = createAgentResource(createAgent, async (agent) => {
+        saved = agent;
+        await list.clearFilters();
+      });
+      const values = { agentId: 'RELOAD-FAILURE', fullName: 'Reload Driver', phone: '123',
+        email: 'reload@example.com', serviceArea: 'North', status: 'active' };
+      for (const [field, value] of Object.entries(values)) creation.setField(field, value);
+      await creation.submit();
+      assert.equal(creation.getSnapshot().status, 'success');
+      assert.equal(list.getSnapshot().status, 'error');
+      assert.ok(records.has(saved.id));
+      assert.doesNotMatch(JSON.stringify(list.getSnapshot()), /private/);
+      failList = false;
+      await list.load(); // The same read-only action used by Try again.
+      await creation.submit(); // A confirmed creation must remain guarded.
+      assert.equal(list.getSnapshot().status, 'success');
+      assert.ok(list.getSnapshot().data.agents.some((agent) => agent.id === saved.id));
+      assert.deepEqual(mutations(), ['POST']);
+
+      const detail = createRequestResource(({ signal }) => fetchAgentById(saved.id, { signal }));
+      subtest.after(() => detail.cancel());
+      await detail.load();
+      failDetail = true;
+      const edit = createEditAgentResource(saved, updateAgent, () => detail.load());
+      edit.setField('fullName', 'Saved despite reload failure');
+      await edit.submit();
+      assert.equal(edit.getSnapshot().status, 'success');
+      assert.equal(detail.getSnapshot().status, 'error');
+      assert.equal(records.get(saved.id).fullName, 'Saved despite reload failure');
+      assert.equal(detail.getSnapshot().data.agent.fullName, 'Reload Driver');
+      failDetail = false;
+      await detail.load();
+      await edit.submit();
+      assert.equal(detail.getSnapshot().status, 'success');
+      assert.equal(detail.getSnapshot().data.agent.fullName, 'Saved despite reload failure');
+      assert.deepEqual(mutations(), ['POST', 'PATCH']);
+
+      failList = true;
+      const deletion = createDeleteAgentResource(detail.getSnapshot().data.agent, deleteAgent, () => list.load());
+      await deletion.confirm();
+      assert.equal(deletion.getSnapshot().status, 'success');
+      assert.equal(list.getSnapshot().status, 'error');
+      assert.equal(records.has(saved.id), false);
+      failList = false;
+      await list.load();
+      await deletion.confirm();
+      assert.equal(list.getSnapshot().status, 'success');
+      assert.equal(list.getSnapshot().data.agents.some((agent) => agent.id === saved.id), false);
+      await detail.load();
+      assert.equal(detail.getSnapshot().data.kind, 'not-found');
+      assert.deepEqual(mutations(), ['POST', 'PATCH', 'DELETE']);
+      assert.equal(records.size, 6);
+      if (redis) assert.equal(redis.del.mock.callCount(), 12);
+    });
   });
 }

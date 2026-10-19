@@ -160,6 +160,31 @@ test('late fills from pre-mutation reads cannot make stale list or detail data u
   assert.equal((await details.read(id)).response.data.fullName, 'Updated');
 });
 
+test('pre-mutation fills arriving after fresh fills cannot revive older cached data', async (t) => {
+  const { state, lists, details } = setup(t);
+  const old = await state.readGeneration();
+  const oldList = { ...listResponse(), data: [detail.data],
+    pagination: { page: 1, limit: 10, total: 1, totalPages: 1 } };
+  await state.invalidate(id);
+  const current = await state.readGeneration();
+  const freshDetail = { ...detail, data: { ...detail.data, fullName: 'Updated' } };
+  const freshList = { ...oldList, data: [freshDetail.data] };
+  await lists.write(query, freshList, 60, current);
+  await details.write(id, freshDetail, 60, current);
+  assert.deepEqual((await lists.read(query)).response, freshList);
+  assert.deepEqual((await details.read(id)).response, freshDetail);
+
+  // Reverse the earlier late-fill test's order: fresh data is already cached.
+  await lists.write(query, oldList, 60, old);
+  await details.write(id, detail, 60, old);
+  assert.deepEqual((await lists.read(query)).response, freshList);
+  const afterLateFill = await details.read(id);
+  assert.ok(afterLateFill.response === null || afterLateFill.response.data.fullName === 'Updated');
+  // A rejected detail entry must allow the controller's fresh database fill to recover.
+  await details.write(id, freshDetail, 60, afterLateFill.generation);
+  assert.deepEqual((await details.read(id)).response, freshDetail);
+});
+
 test('evicting the generation key creates a fresh token instead of reviving old entries', async (t) => {
   const { redis, state, lists, details } = setup(t);
   const old = await state.readGeneration();

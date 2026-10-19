@@ -30,9 +30,9 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 22 is COMPLETE and committed as `7ce23a9` (`feat: add delivery agent creation form`). Its verification results remain recorded below.
 - Step 23 is COMPLETE and committed as `9e1f9a6` (`feat: add agent details view`). Its verification results remain recorded below.
 - Step 24 is COMPLETE after 77 focused tests, all 91 frontend tests, the production build, syntax checks, and Git checks passed. Editing and confirmed deletion use the existing PATCH/DELETE contracts. Browser interactions and live persistence were not verified in this step; changes remain uncommitted for review.
-- Step 25 retains its existing PENDING roadmap status and documented automated integration verification; Steps 27-30 remain PENDING.
-- Step 25 now has automated frontend-to-Express integration coverage through the Vite proxy, with Redis enabled and unavailable. See the Step 25 verification section below for results and remaining live/browser checks. Roadmap statuses are preserved as requested.
+- Step 25 remains PENDING in `docs/STEP_PLAN.md`. Automated frontend-to-Express integration through the Vite proxy passes with Redis enabled and unavailable; live MongoDB/Redis persistence and browser/deployment verification remain pending. See the Step 25 verification section below for results and limitations. Steps 28-30 remain PENDING.
 - Step 26 is COMPLETE: shared read feedback distinguishes initial loading, refresh, cancellation, timeout/network failure, empty success, and missing agents. All 103 frontend tests and the production build passed; see the Step 26 section for the first-load investigation and limitations.
+- Step 27 is COMPLETE: seven additional cases cover warm-cache request rejection, reversed late-fill ordering, failed post-mutation reads, and refresh cancellation/stale errors. All 136 backend tests, 107 frontend tests, and the production build passed. Runtime code is unchanged.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
 - `client/` contains a responsive dashboard shell, API-backed overview, searchable/filtered/paginated Agents list, creation/edit forms, individual details, and delete confirmation with loading/not-found/error/retry handling. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
@@ -198,7 +198,7 @@ The existing backend's normal local configuration uses port 5000, and the Vite p
 | `npm run dev` | Start Vite with development updates when files change |
 | `npm run build` | Compile the frontend into `client/dist/` for production |
 | `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
-| `npm test` | Run 103 frontend tests, including frontend-to-Express integration (requires dependencies installed in both `client/` and `server/`) |
+| `npm test` | Run 107 frontend tests, including frontend-to-Express integration (requires dependencies installed in both `client/` and `server/`) |
 
 `preview` is a local build check, not a production hosting service. The existing Vercel configuration serves `index.html` for browser-router page URLs such as `/agents`, `/agents/:id`, and `/agents/:id/edit`, after matching the API rewrite. Overview, Agents, Agent details/editing, and the unknown-page fallback share the dashboard shell. Creation is available on Agents; confirmed deletion is available from the table and detail page.
 
@@ -1528,3 +1528,43 @@ Seven new tests exercise initial/empty/cancelled states, retained refresh conten
 Backend source, contracts, schemas, Redis behavior, validation, API URL settings, rewrites, hosting, packages, and lockfiles are unchanged. The standalone backend suite was not rerun because backend behavior was not changed; the full client suite includes frontend-to-Express integration checks. Browser DOM events, focus behavior, and viewport appearance were not manually inspected; render tests verify markup and direct resource tests exercise the request states. Live MongoDB/Redis and production first-load behavior remain unverified. `server/.env` was never read, printed, staged, or modified. Changes remain unstaged and uncommitted. Steps 27-30 remain PENDING, and Step 25's existing roadmap status is unchanged.
 
 Suggested commit after review: `fix: improve dashboard feedback and error states`
+
+## Step 27 Automated coverage for CRUD, validation, and cache edges
+
+Step 27 is COMPLETE: normal operations and important edge cases are covered, the focused/full suites and production build pass, and actual results are recorded below. The working tree was clean at the start, with Step 25 committed as `68a0376` and Step 26 as `be6c4d5`. Existing test conventions, dependencies, and fixtures are retained. No runtime defect was demonstrated by the added cases, so application code is unchanged.
+
+The coverage review included the Agent model, Zod/phone rules, CRUD routes/controllers and public response contracts, cache generation/TTL/fallback behavior, shared Axios client, read/mutation resources, forms/pages, and both packages' existing tests. These established cases were reused rather than copied into new tests:
+
+| Existing coverage | Tests reviewed and retained |
+| --- | --- |
+| Required fields, phone syntax, defaults/normalization, immutable fields, partial PATCH, duplicate business IDs, malformed IDs, missing records, safe database failures, public response fields, and HTTP 201/200/204/400/404/409/500 contracts | Backend model, create/list/detail/update/delete, request-error, and connected CRUD-flow suites |
+| Cache hits/misses, 60-second expiry and configured TTL, invalidation after successful writes, failed database writes, unavailable Redis, read/write/delete/generation errors, bypass recovery, concurrent invalidation, and late fills | Backend list/detail, cache-consistency, cache-invalidation, Redis, and startup suites |
+| Successful CRUD/state refreshes through actual Axios → Vite proxy → Express, overview counts, search/filter/pagination, and production rewrite order | Step 25 backend-integration and proxy suites |
+| Initial/refresh/empty/not-found feedback, read retry, timeout/disconnect/HTML/503 failures, cancellation, stale responses, preserved failed drafts, and duplicate submission prevention | Step 26 request-feedback plus existing overview/list/detail/create/mutation/layout suites |
+
+Seven additional cases cover combinations missing from those suites:
+
+- `server/test/cache-consistency.test.js`: two cases verify warm list/detail entries survive rejected phone/body/ID validation, missing-record PATCH/DELETE, and malformed/oversized JSON on the actual POST/PATCH routes. Assertions check safe 400/404/413 responses, blocked writes where appropriate, unchanged generation/invalidation counters, and subsequent cache hits without database reads or cache rewrites.
+- `server/test/cache-invalidation.test.js`: one case reverses the existing late-fill ordering. Fresh entries are already cached when an old-generation fill arrives. List data remains fresh; detail data is fresh or a safe miss, then recovers through a current-generation fill. The existing generation behavior is preserved: a late detail fill may replace a cache entry physically, but its old generation prevents it being served as current data.
+- `client/test/backend-integration.test.js`: one nested case runs in each existing Redis mode, adding two counted cases without duplicating server/proxy setup. Successful create/edit/delete operations are followed by deliberately failed GETs. Confirmed writes stay successful, simulated storage reflects each mutation, and explicit read retries recover. Recording actual Axios request methods proves those retries and repeated confirmations/submissions issue exactly one POST, PATCH, and DELETE across the scenario.
+- `client/test/request-feedback.test.js`: two cases cover a failed superseded refresh after a newer filtered read succeeds, and transport cancellation during a refresh. Old rows/errors cannot replace the newer result; cancellation retains labelled prior data without presenting a network error or indefinite loading.
+
+Fixtures reuse `mockAgentStore` and `fakeRedis`. New race cases use controlled promises and explicit operation ordering, with no sleeps or live credentials. Child-test mocks, request interceptors, read resources, and HTTP/Vite servers have cleanup hooks; existing tests and assertions were not weakened, skipped, or removed.
+
+### Step 27 verification
+
+Checks on October 19, 2026:
+
+| Directory | Command | Actual result |
+| --- | --- | --- |
+| `server/` | `node --test test/cache-consistency.test.js test/cache-invalidation.test.js test/crud-flow.test.js test/agent.test.js test/create-agent.test.js test/update-agent.test.js test/list-agents.test.js test/get-agent.test.js test/delete-agent.test.js` | 93 passed, 0 failed, 0 skipped |
+| `server/` | `npm test -- --test-concurrency=1` | 136 passed, 0 failed, 0 skipped |
+| `client/` | `node --test test/backend-integration.test.js test/request-feedback.test.js test/create-agent.test.js test/agent-mutations.test.js` | 54 passed, 0 failed, 0 skipped |
+| `client/` | `npm test` | 107 passed, 0 failed, 0 skipped |
+| `client/` | `npm run build` | Passed with Vite 8.3.4; 2,079 modules transformed |
+| Root | `node --check` on all four changed JavaScript test files | Passed |
+| Root | `git diff --check` | Passed |
+
+These are isolated automated checks, not live MongoDB index/query verification, Redis Cloud or multi-process deployment testing, or interactive/deployed browser acceptance. The reported production first-load failure remains unproven locally. No live services or deployment logs were contacted, and `server/.env` was never read, printed, staged, or modified. Runtime behavior, API contracts, schemas, phone validation, TTL/configuration, loading/error UI, hosting, and dependencies are unchanged. Nothing is staged or committed. Step 25's existing roadmap status is preserved; Steps 28-30 remain PENDING.
+
+Suggested commit after review: `test: cover CRUD validation and cache edge cases`

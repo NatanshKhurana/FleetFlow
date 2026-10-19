@@ -32,8 +32,9 @@ async function setup(t) {
     server.closeAllConnections();
   }));
   await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
   async function send(method, path = '', body, status = 200) {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/agents${path}`, {
+    const response = await fetch(`${base}/api/agents${path}`, {
       method, headers: { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000),
     });
@@ -45,7 +46,7 @@ async function setup(t) {
   const created = await send('POST', '', payload, 201);
   const path = '/' + created.data.id;
   const read = async () => ({ list: await send('GET'), detail: await send('GET', path) });
-  return { redis, state, lists, details, send, path, read, logger,
+  return { base, redis, state, lists, details, send, path, read, logger,
     setAvailable(value) { available = value; } };
 }
 
@@ -95,6 +96,74 @@ test('failed MongoDB writes preserve warm cache contents and generation', async 
   assert.deepEqual(await read(), warm);
   assert.equal(Agent.find.mock.callCount(), listReads);
   assert.equal(Agent.findById.mock.callCount(), detailReads);
+});
+
+test('rejected validation and missing-record mutations preserve warm caches without false success', async (t) => {
+  const { read, send, path, redis } = await setup(t);
+  const warm = await read();
+  const generation = redis.generation;
+  const writes = redis.set.mock.callCount();
+  const rotations = redis.generationSet.mock.callCount();
+  const deletions = redis.del.mock.callCount();
+  const creates = Agent.create.mock.callCount();
+  for (const [method, target, body] of [
+    ['POST', '', { ...payload, agentId: 'INVALID-PHONE', phone: 'abc' }],
+    ['PATCH', path, { phone: 'abc', fullName: 'Must not be saved' }],
+    ['PATCH', path, { fullName: 'Must not be saved', agentId: 'immutable' }],
+    ['PATCH', '/not-a-record-id', { status: 'inactive' }],
+    ['DELETE', '/not-a-record-id', undefined],
+  ]) {
+    const rejected = await send(method, target, body, 400);
+    assert.equal(rejected.success, false);
+    assert.equal(rejected.message, 'Request validation failed');
+  }
+  assert.equal(Agent.create.mock.callCount(), creates);
+  assert.equal(Agent.findByIdAndUpdate.mock.callCount(), 0);
+  assert.equal(Agent.findByIdAndDelete.mock.callCount(), 0);
+  for (const method of ['PATCH', 'DELETE']) {
+    const missing = await send(method, '/' + 'f'.repeat(24), method === 'PATCH' ? { status: 'inactive' } : undefined, 404);
+    assert.deepEqual(missing, { success: false, message: 'Agent not found' });
+  }
+  assert.equal(redis.generation, generation);
+  assert.equal(redis.generationSet.mock.callCount(), rotations);
+  assert.equal(redis.del.mock.callCount(), deletions);
+  assert.deepEqual(await read(), warm);
+  assert.equal(Agent.find.mock.callCount(), 1);
+  assert.equal(Agent.countDocuments.mock.callCount(), 1);
+  assert.equal(Agent.findById.mock.callCount(), 1);
+  assert.equal(redis.set.mock.callCount(), writes);
+});
+
+test('malformed and oversized JSON on actual mutation routes leave warm caches and storage untouched', async (t) => {
+  const { base, path, read, redis } = await setup(t);
+  const warm = await read();
+  const generation = redis.generation;
+  const writes = redis.set.mock.callCount();
+  const rotations = redis.generationSet.mock.callCount();
+  const deletions = redis.del.mock.callCount();
+  const creates = Agent.create.mock.callCount();
+  for (const [body, status, message] of [
+    ['{invalid-json', 400, 'Invalid JSON request body'],
+    [JSON.stringify({ fullName: 'x'.repeat(110000) }), 413, 'Request body is too large'],
+  ]) {
+    for (const [method, target] of [['POST', ''], ['PATCH', path]]) {
+      const response = await fetch(`${base}/api/agents${target}`, {
+        method, headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(5000),
+      });
+      assert.equal(response.status, status);
+      assert.match(response.headers.get('content-type'), /application\/json/);
+      assert.deepEqual(await response.json(), { success: false, message });
+    }
+  }
+  assert.equal(Agent.create.mock.callCount(), creates);
+  assert.equal(Agent.findByIdAndUpdate.mock.callCount(), 0);
+  assert.equal(redis.generation, generation);
+  assert.equal(redis.generationSet.mock.callCount(), rotations);
+  assert.equal(redis.del.mock.callCount(), deletions);
+  assert.deepEqual(await read(), warm);
+  assert.equal(Agent.find.mock.callCount(), 1);
+  assert.equal(Agent.findById.mock.callCount(), 1);
+  assert.equal(redis.set.mock.callCount(), writes);
 });
 
 function payloadFor(method) {

@@ -142,6 +142,46 @@ test('cancellation ends loading immediately, ignores late completion, and suppor
   assert.equal(resource.getSnapshot().status, 'success');
 });
 
+test('a failed superseded refresh cannot restore old rows or errors after a newer filtered read', async () => {
+  const pending = Promise.withResolvers();
+  let oldSignal;
+  let calls = 0;
+  const resource = createAgentsResource((query, { signal }) => {
+    if (++calls === 1) return list;
+    if (calls === 2) { oldSignal = signal; return pending.promise; }
+    return { agents: [], pagination: { page: query.page, limit: query.limit, total: 0, totalPages: 0 } };
+  });
+  await resource.load();
+  const refresh = resource.load();
+  assert.equal(resource.getSnapshot().data, list);
+  await resource.applyFilters({ search: 'no match', status: 'inactive', serviceArea: 'South' });
+  assert.equal(oldSignal.aborted, true);
+  const current = resource.getSnapshot();
+  pending.reject({ code: 'ECONNABORTED', message: 'private late failure' });
+  await refresh;
+  assert.equal(resource.getSnapshot(), current);
+  assert.equal(current.status, 'success');
+  assert.match(render(Agents, current, { query: resource.getQuery() }), /No matching agents/);
+  assert.doesNotMatch(render(Agents, current), /Feedback Driver|role="alert"|private|took too long/);
+  assert.equal(calls, 3);
+});
+
+test('transport cancellation during a refresh retains old data without becoming a network error', async () => {
+  const pending = Promise.withResolvers();
+  let calls = 0;
+  const resource = createRequestResource(() => ++calls === 1 ? overview : pending.promise);
+  await resource.load();
+  const refresh = resource.load();
+  pending.reject({ code: 'ERR_CANCELED', message: 'private transport details' });
+  await refresh;
+  assert.deepEqual(resource.getSnapshot(), { status: 'cancelled', data: overview });
+  const html = render(Overview, resource.getSnapshot());
+  assert.match(html, /Request cancelled|Showing previously loaded data/);
+  assert.match(html, /Feedback Driver/);
+  assert.doesNotMatch(html, /aria-busy="true"|role="alert"|private|could not reach/);
+  assert.equal(calls, 2);
+});
+
 // Real HTTP failures exercise Axios classification, rather than just synthetic error objects.
 async function startFixture(t) {
   let mode = 'timeout';

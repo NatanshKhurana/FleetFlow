@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-24 and Step 26 are **COMPLETE**. Step 25 retains its documented **PENDING** status; Steps 27-30 remain **PENDING**. Step 26 passed 89 focused tests, all 103 frontend tests, and the production build. It adds shared safe read feedback, retained refresh content, settled cancellation, and manual retry/refresh actions; the production first-load failure remains unproven locally. See README Step 26 for current results and limitations. The following Step 24 record is historical. Step 23 is committed as `9e1f9a6`; earlier steps retain their existing commits. Step 24 enables prefilled editing at /agents/:id/edit and confirmed deletion from the table/detail page, using only the existing PATCH/DELETE contracts. Editable-field validation, partial updates, retained drafts, duplicate-submit guards, safe errors, confirmation/cancellation, success feedback, and fresh list/detail GETs are implemented. Verification passed: 77 focused tests, all 91 frontend tests, production build, syntax checks, and Git checks. The initial focused run caught one test assertion that assumed HTML attribute order; it was corrected and all affected checks passed. Browser DOM/modal/viewport verification and live MongoDB/Redis persistence were not performed; automated tests use controlled requests and a disposable in-memory HTTP fixture. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-24 and Steps 26-27 are **COMPLETE**. Step 25 retains its documented **PENDING** status; Steps 28-30 remain **PENDING**. Step 27 adds seven boundary cases to the existing coverage without changing runtime code. Verification passed: 93 focused backend tests, all 136 backend tests, 54 focused frontend tests, all 107 frontend tests, production build, four JavaScript syntax checks, and Git whitespace checks. Live services and deployed browser behavior remain unverified; see README Step 27. Step 26 passed 89 focused tests, all 103 frontend tests, and the production build. It adds shared safe read feedback, retained refresh content, settled cancellation, and manual retry/refresh actions; the production first-load failure remains unproven locally. See README Step 26 for current results and limitations. The following Step 24 record is historical. Step 23 is committed as `9e1f9a6`; earlier steps retain their existing commits. Step 24 enables prefilled editing at /agents/:id/edit and confirmed deletion from the table/detail page, using only the existing PATCH/DELETE contracts. Editable-field validation, partial updates, retained drafts, duplicate-submit guards, safe errors, confirmation/cancellation, success feedback, and fresh list/detail GETs are implemented. Verification passed: 77 focused tests, all 91 frontend tests, production build, syntax checks, and Git checks. The initial focused run caught one test assertion that assumed HTML attribute order; it was corrected and all affected checks passed. Browser DOM/modal/viewport verification and live MongoDB/Redis persistence were not performed; automated tests use controlled requests and a disposable in-memory HTTP fixture. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -235,6 +235,8 @@ Objective: Connect all frontend operations through reusable Axios service functi
 
 Acceptance criteria: Create, list, detail, update, and delete flows work end to end.
 
+Verification: Automated frontend-to-Express integration through the Vite proxy passes with simulated storage and Redis enabled/unavailable. Live MongoDB/Redis persistence and browser/deployment verification remain pending, so Step 25 retains its PENDING status.
+
 Commit: feat: integrate dashboard with agent APIs
 
 ### Step 26 — Improve feedback and error states
@@ -247,11 +249,13 @@ Acceptance criteria: Users receive clear feedback for success, failure, and load
 Commit: fix: improve dashboard feedback and error states
 
 ### Step 27 — Complete automated tests
-Status: PENDING
+Status: COMPLETE
 
 Objective: Add or finalize tests for CRUD, validation, and Redis behaviour.
 
 Acceptance criteria: Tests cover normal operations and important edge cases, and actual test results are documented.
+
+Verification: Reported passing automated checks on October 19, 2026 include 93 focused and 136 full backend tests, 54 focused and 107 full frontend tests, the production build, four JavaScript syntax checks, and Git whitespace checks. All test runs had zero failures and zero skips. These results satisfy Step 27's acceptance criteria; live services and deployed browser behavior remain unverified. See README Step 27 for commands and limitations.
 
 Commit: test: cover CRUD validation and cache edge cases
 
