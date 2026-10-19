@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 
 const date = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
-export default function AgentsTable({ agents, onDelete }) {
+export default function AgentsTable({ agents, onDelete, disableDelete = false }) {
   return (
     <>
       <p className="border-b border-slate-100 px-5 py-3 text-xs text-slate-500 lg:hidden">Scroll within the table to see all columns.</p>
@@ -44,7 +44,7 @@ export default function AgentsTable({ agents, onDelete }) {
                       title="Edit agent" className="flex size-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
                       <Pencil size={18} aria-hidden="true" />
                     </Link>
-                    <button type="button" onClick={() => onDelete(agent)} aria-label={`Delete agent ${agent.agentId}`}
+                    <button type="button" disabled={disableDelete} onClick={() => onDelete(agent)} aria-label={`Delete agent ${agent.agentId}`}
                       title="Delete agent" className="flex size-11 items-center justify-center rounded-lg text-red-700 hover:bg-red-50">
                       <Trash2 size={18} aria-hidden="true" />
                     </button>

@@ -1,5 +1,7 @@
-// Shared request lifecycle for the overview and agents pages, independent of React.
-export function createRequestResource(fetchData) {
+import { readErrorKind } from '../lib/requestErrors.js';
+
+// Shared read lifecycle. Keep data only when it still belongs to this request.
+export function createRequestResource(fetchData, { canRetainData = () => true } = {}) {
   let snapshot = { status: 'loading', data: null };
   let currentRequest;
   const listeners = new Set();
@@ -12,21 +14,27 @@ export function createRequestResource(fetchData) {
   function cancel() {
     currentRequest?.abort();
     currentRequest = undefined;
+    if (snapshot.status === 'loading') publish({ status: 'cancelled', data: snapshot.data });
   }
 
-  async function load() {
-    cancel();
+  async function load({ keepData = true } = {}) {
+    currentRequest?.abort();
     const request = new AbortController();
     currentRequest = request;
-    publish({ status: 'loading', data: null });
+    const data = keepData && canRetainData(snapshot.data) ? snapshot.data : null;
+    publish({ status: 'loading', data });
     try {
       const data = await fetchData({ signal: request.signal });
       if (currentRequest !== request || request.signal.aborted) return;
+      currentRequest = undefined;
       publish({ status: 'success', data });
-    } catch {
+    } catch (error) {
       if (currentRequest !== request || request.signal.aborted) return;
       request.abort();
-      publish({ status: 'error', data: null });
+      currentRequest = undefined;
+      publish(error?.code === 'ERR_CANCELED'
+        ? { status: 'cancelled', data }
+        : { status: 'error', data, errorKind: readErrorKind(error) });
     }
   }
 

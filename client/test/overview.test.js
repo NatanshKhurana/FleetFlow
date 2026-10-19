@@ -164,7 +164,7 @@ test('unmount cancellation ignores completion and permits the StrictMode reload 
   assert.equal(signal.aborted, true);
   pending.reject(new Error('late cancellation'));
   await first;
-  assert.equal(resource.getSnapshot().status, 'loading');
+  assert.equal(resource.getSnapshot().status, 'cancelled');
   await resource.load();
   assert.equal(resource.getSnapshot().status, 'success');
 });

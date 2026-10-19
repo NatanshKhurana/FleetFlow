@@ -1,5 +1,6 @@
 import { ArrowLeft, Pencil, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { Link } from 'react-router';
+import ReadFeedback from '../ReadFeedback.jsx';
 
 const date = new Intl.DateTimeFormat('en', {
   month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'UTC',
@@ -40,6 +41,7 @@ function AgentInformation({ agent }) {
 
 export default function AgentDetailContent({ state, onRetry, onDelete }) {
   const kind = state.data?.kind;
+  const found = kind === 'found';
   return <div className="min-w-0 space-y-5">
     <Link to="/agents" className="inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-medium text-emerald-700 underline underline-offset-4">
       <ArrowLeft size={17} aria-hidden="true" />Back to Agents
@@ -53,6 +55,10 @@ export default function AgentDetailContent({ state, onRetry, onDelete }) {
         className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700">
         <Trash2 size={17} aria-hidden="true" />Delete agent
       </button>
+      <button type="button" onClick={() => void onRetry()}
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-emerald-700">
+        <RefreshCw size={17} aria-hidden="true" />Refresh details
+      </button>
     </div>}
     <section aria-labelledby="agent-information-title" aria-busy={state.status === 'loading'}
       className="min-w-0 rounded-2xl border border-slate-200 bg-white">
@@ -60,11 +66,12 @@ export default function AgentDetailContent({ state, onRetry, onDelete }) {
         <UserRound size={21} className="shrink-0 text-emerald-700" aria-hidden="true" />
         <h2 id="agent-information-title" className="font-semibold text-slate-900">Agent information</h2>
       </div>
-      {state.status === 'loading' ? <p role="status" className="p-6 text-sm text-slate-500 sm:p-8">Loading agent details…</p>
-        : state.status === 'error' ? <DetailFeedback title="We couldn't load this agent." onRetry={onRetry}>Agent details are temporarily unavailable. Please try again.</DetailFeedback>
+      <ReadFeedback state={state} title="We couldn't load this agent."
+        initialLabel="Loading agent details…" refreshLabel="Refreshing agent details…" onRetry={onRetry} />
+      {found ? <AgentInformation agent={state.data.agent} /> : state.status !== 'success' ? null
           : kind === 'invalid' ? <DetailFeedback title="Invalid agent link">This link does not contain a valid agent record ID. Return to Agents and select View for an agent.</DetailFeedback>
             : kind === 'not-found' ? <DetailFeedback title="Agent not found" onRetry={onRetry}>This agent may have been removed or the link may be out of date. Return to Agents or try again.</DetailFeedback>
-              : <AgentInformation agent={state.data.agent} />}
+              : null}
     </section>
   </div>;
 }

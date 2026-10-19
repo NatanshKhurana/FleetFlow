@@ -1,6 +1,6 @@
 # FleetFlow step plan
 
-This is the agreed 30-step roadmap. Steps 1-24 are **COMPLETE** and Steps 25-30 remain **PENDING**. Step 23 is committed as `9e1f9a6`; earlier steps retain their existing commits. Step 24 enables prefilled editing at /agents/:id/edit and confirmed deletion from the table/detail page, using only the existing PATCH/DELETE contracts. Editable-field validation, partial updates, retained drafts, duplicate-submit guards, safe errors, confirmation/cancellation, success feedback, and fresh list/detail GETs are implemented. Verification passed: 77 focused tests, all 91 frontend tests, production build, syntax checks, and Git checks. The initial focused run caught one test assertion that assumed HTML attribute order; it was corrected and all affected checks passed. Browser DOM/modal/viewport verification and live MongoDB/Redis persistence were not performed; automated tests use controlled requests and a disposable in-memory HTTP fixture. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
+This is the agreed 30-step roadmap. Steps 1-24 and Step 26 are **COMPLETE**. Step 25 retains its documented **PENDING** status; Steps 27-30 remain **PENDING**. Step 26 passed 89 focused tests, all 103 frontend tests, and the production build. It adds shared safe read feedback, retained refresh content, settled cancellation, and manual retry/refresh actions; the production first-load failure remains unproven locally. See README Step 26 for current results and limitations. The following Step 24 record is historical. Step 23 is committed as `9e1f9a6`; earlier steps retain their existing commits. Step 24 enables prefilled editing at /agents/:id/edit and confirmed deletion from the table/detail page, using only the existing PATCH/DELETE contracts. Editable-field validation, partial updates, retained drafts, duplicate-submit guards, safe errors, confirmation/cancellation, success feedback, and fresh list/detail GETs are implemented. Verification passed: 77 focused tests, all 91 frontend tests, production build, syntax checks, and Git checks. The initial focused run caught one test assertion that assumed HTML attribute order; it was corrected and all affected checks passed. Browser DOM/modal/viewport verification and live MongoDB/Redis persistence were not performed; automated tests use controlled requests and a disposable in-memory HTTP fixture. The configured live backend was not started, changed, or reconfigured, and server/.env was not accessed. Changes are uncommitted for review. Dedicated live Redis cache expiry/invalidation checks remain unperformed. Commit messages are suggestions, not permission to commit automatically.
 
 ## Phase 1: Project Foundation and Backend Setup
 
@@ -238,7 +238,7 @@ Acceptance criteria: Create, list, detail, update, and delete flows work end to 
 Commit: feat: integrate dashboard with agent APIs
 
 ### Step 26 — Improve feedback and error states
-Status: PENDING
+Status: COMPLETE
 
 Objective: Add loading indicators, empty states, readable API errors, duplicate submission prevention, and responsive polish.
 

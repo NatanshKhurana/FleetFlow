@@ -1,4 +1,5 @@
-import { Clock3, RefreshCw, TriangleAlert, UserRoundCheck, UserRoundMinus, UsersRound } from 'lucide-react';
+import { RefreshCw, UserRoundCheck, UserRoundMinus, UsersRound } from 'lucide-react';
+import ReadFeedback from '../ReadFeedback.jsx';
 
 const number = new Intl.NumberFormat('en');
 const date = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
@@ -71,40 +72,32 @@ function RecentAgents({ agents }) {
 
 export default function OverviewContent({ state, onRetry }) {
   const loading = state.status === 'loading';
+  const data = state.data;
   return (
     <section aria-label="Agent overview" aria-busy={loading} className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Your team at a glance.</h2>
         <p className="mt-1 text-sm leading-6 text-slate-500">A snapshot of the people behind your deliveries.</p>
       </div>
-      {state.status === 'error' ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
-          <div role="alert">
-            <TriangleAlert className="mb-4 text-amber-600" size={24} aria-hidden="true" />
-            <h3 className="font-semibold">We couldn't load your overview.</h3>
-            <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">Your agent data is temporarily unavailable. Please try again.</p>
-          </div>
-          <button type="button" onClick={onRetry} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
-            <RefreshCw size={16} aria-hidden="true" />Try again
-          </button>
-        </div>
-      ) : (
+      <ReadFeedback state={state} title="We couldn't load your overview."
+        initialLabel="Loading your overview…" refreshLabel="Refreshing your overview…" onRetry={onRetry} />
+      {(data || loading) && (
         <>
-          <SummaryCards data={state.data} loading={loading} />
-          {loading ? (
-            <div role="status" className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-              <Clock3 size={19} aria-hidden="true" />Loading your overview…
-            </div>
-          ) : state.data.total === 0 ? (
+          <SummaryCards data={data} loading={!data} />
+          {data && (data.total === 0 ? (
             <div role="status" className="rounded-2xl border border-slate-200 bg-white p-8 text-center sm:p-12">
               <UsersRound size={28} className="mx-auto mb-4 text-emerald-700" aria-hidden="true" />
               <h3 className="font-semibold">No agents yet</h3>
               <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">Your overview will fill in as agents are added to your team.</p>
             </div>
-          ) : <RecentAgents agents={state.data.recentAgents} />}
-          {!loading && <p className="text-xs leading-5 text-slate-500">Counts include all registered agents. Recent registrations are ordered newest first.</p>}
+          ) : <RecentAgents agents={data.recentAgents} />)}
+          {data && <p className="text-xs leading-5 text-slate-500">Counts include all registered agents. Recent registrations are ordered newest first.</p>}
         </>
       )}
+      {state.status === 'success' && <button type="button" onClick={() => void onRetry()}
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-emerald-700">
+        <RefreshCw size={16} aria-hidden="true" />Refresh overview
+      </button>}
     </section>
   );
 }

@@ -251,7 +251,7 @@ test('retry keeps the applied query and cancellation prevents updates after leav
   leaving.cancel();
   late.reject(new Error('late failure'));
   await load;
-  assert.equal(leaving.getSnapshot().status, 'loading');
+  assert.equal(leaving.getSnapshot().status, 'cancelled');
 });
 
 test('a page emptied by later deletions can navigate back to the first page without losing filters', async () => {

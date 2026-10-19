@@ -12,7 +12,8 @@ export function createAgentsResource(fetchAgents) {
       status: String(filters.status ?? '').trim(),
       serviceArea: String(filters.serviceArea ?? '').trim(),
     };
-    return request.load();
+    // Different filters must never label old rows as matching the new query.
+    return request.load({ keepData: false });
   }
 
   function goToPage(page) {
@@ -22,7 +23,7 @@ export function createAgentsResource(fetchAgents) {
     const nextPage = Math.max(1, Math.min(page, lastPage));
     if (nextPage === query.page) return;
     query = { ...query, page: nextPage };
-    return request.load();
+    return request.load({ keepData: false });
   }
 
   return { ...request, getQuery: () => query, applyFilters, goToPage,

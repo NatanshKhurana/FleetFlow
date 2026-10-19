@@ -30,8 +30,9 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 22 is COMPLETE and committed as `7ce23a9` (`feat: add delivery agent creation form`). Its verification results remain recorded below.
 - Step 23 is COMPLETE and committed as `9e1f9a6` (`feat: add agent details view`). Its verification results remain recorded below.
 - Step 24 is COMPLETE after 77 focused tests, all 91 frontend tests, the production build, syntax checks, and Git checks passed. Editing and confirmed deletion use the existing PATCH/DELETE contracts. Browser interactions and live persistence were not verified in this step; changes remain uncommitted for review.
-- Steps 25-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 25 retains its existing PENDING roadmap status and documented automated integration verification; Steps 27-30 remain PENDING.
 - Step 25 now has automated frontend-to-Express integration coverage through the Vite proxy, with Redis enabled and unavailable. See the Step 25 verification section below for results and remaining live/browser checks. Roadmap statuses are preserved as requested.
+- Step 26 is COMPLETE: shared read feedback distinguishes initial loading, refresh, cancellation, timeout/network failure, empty success, and missing agents. All 103 frontend tests and the production build passed; see the Step 26 section for the first-load investigation and limitations.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
 - `client/` contains a responsive dashboard shell, API-backed overview, searchable/filtered/paginated Agents list, creation/edit forms, individual details, and delete confirmation with loading/not-found/error/retry handling. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
@@ -197,7 +198,7 @@ The existing backend's normal local configuration uses port 5000, and the Vite p
 | `npm run dev` | Start Vite with development updates when files change |
 | `npm run build` | Compile the frontend into `client/dist/` for production |
 | `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
-| `npm test` | Run 96 frontend tests, including frontend-to-Express integration (requires dependencies installed in both `client/` and `server/`) |
+| `npm test` | Run 103 frontend tests, including frontend-to-Express integration (requires dependencies installed in both `client/` and `server/`) |
 
 `preview` is a local build check, not a production hosting service. The existing Vercel configuration serves `index.html` for browser-router page URLs such as `/agents`, `/agents/:id`, and `/agents/:id/edit`, after matching the API rewrite. Overview, Agents, Agent details/editing, and the unknown-page fallback share the dashboard shell. Creation is available on Agents; confirmed deletion is available from the table and detail page.
 
@@ -1489,3 +1490,41 @@ Existing phone-validation, cancellation/stale-response, CRUD, and Redis regressi
 These checks verify the frontend service/state-to-Express integration locally. They do not execute browser clicks/navigation effects, verify real MongoDB persistence or Redis Cloud, inspect deployed Vercel environment values, or contact the deployed Render backend. Live/browser acceptance remains unverified, so this section records automated progress without marking the roadmap complete. No files were staged or committed.
 
 Suggested commit after review: `feat: integrate dashboard with agent APIs`
+
+## Step 26 Feedback, loading, and safe read retries
+
+Step 26 is COMPLETE against its feedback acceptance criteria. Existing create/edit submission progress, disabled controls, duplicate-submission guards, field validation, retained failed drafts, deletion confirmation, and missing-record feedback were verified and preserved. No mutation is automatically retried. A timed-out write may already have succeeded, so existing messages continue to ask users to check the saved record before submitting again.
+
+The shared `requestResource.js` previously cleared data on every read and left cancelled requests marked as loading. It now retains already loaded data during a same-request refresh, records cancellation as a settled state, and retains only a safe failure category. Superseded and cancelled completions still cannot overwrite a newer result. Changing list filters/pages clears rows belonging to the old query; changing the detail route ID still starts a separate resource. Invalid/missing detail results are not retained while that page retries. There are no new dependencies or global caches.
+
+`components/ReadFeedback.jsx` and `lib/requestErrors.js` share fixed public text across overview, list, and detail views. Initial loading shows progress without invented zero totals or empty-result messages. Refreshes keep data visible with an explicit warning that it may be out of date. A failed refresh keeps that warning and offers **Try again**; a failed first load shows no fabricated content. Timeout messages explain that the request took too long, connection failures ask users to check connectivity, and HTTP/malformed-response failures show a safe unavailable message. No raw Axios message, URL, response body, stack trace, or credential is stored in read state or displayed.
+
+Successful reads expose **Refresh overview**, **Refresh agents**, and **Refresh details** buttons. Retry and refresh run the existing GET services once per action (three list GETs for the overview); there is no retry loop, polling, timeout increase, or POST/PATCH/DELETE retry interceptor. Progress and cancellation use status announcements, errors use alerts, and existing responsive layouts and keyboard-operable buttons remain. List pagination and deletion are disabled while retained results are refreshing or failed. Detail mutation actions appear again after a successful read. Successful empty responses and detail 404s remain distinct from request failures.
+
+### First-load API investigation
+
+The local trace is: page mount → shared request resource/AbortController → reusable service → shared Axios client (`/api`, 10-second timeout) → Vite proxy locally, or the existing Vercel `/api/:path*` rewrite to Render in production → Express `/api/agents` validation/controller/cache/database path. The SPA fallback follows the API rewrite. The overview requests total/recent, active, and inactive data concurrently and checks consistency before displaying counts. Its existing guard can reject inconsistent totals during concurrent changes; no cache behavior was changed. Development StrictMode can cancel and restart a mount request; the cancelled request must not produce an error or replace the restarted result.
+
+Demonstrated local gaps were discarded refresh content, loading state remaining after cancellation, and identical feedback for timeout/network/other failures. HTTP fixtures also reproduce a stalled response, a disconnected socket, an HTML response, and HTTP 503 on the first read; each settles into safe failure feedback and recovers on an explicit retry. The fixtures use a test-only 200 ms Axios timeout; the application's 10-second deadline is unchanged. An earlier assertion counted late-arriving aborted overview requests as retry requests; the corrected assertion counts actual Axios dispatches, and both final test runs passed.
+
+**The reported production first-load failure's root cause is not established locally.** No local production logs were available, no live Render logs or deployed Vercel settings were inspected, and no live deployment was contacted. There is no evidence here establishing a Render cold start. The configured rewrite and service contracts pass local regression tests; they do not prove the deployed environment uses the same configuration.
+
+For remaining manual diagnosis, capture a first-load request in the browser Network panel and record its public path, HTTP status, duration, response content type, and timeout/connection classification without sharing secrets. Verify the deployed frontend uses `/api` and that the API rewrite runs before the SPA fallback; an absolute cross-origin API URL bypasses the rewrite and the existing backend does not enable CORS. Correlate the request time with Render startup/request logs and database readiness, then compare a manual retry. A roughly 10-second timeout establishes the browser deadline was exceeded, not why the backend did not answer. Do not copy private server settings into browser configuration.
+
+### Step 26 verification
+
+Checks on October 19, 2026:
+
+| Directory | Command | Actual result |
+| --- | --- | --- |
+| `client/` | `node --test test/request-feedback.test.js test/overview.test.js test/agents.test.js test/agent-detail.test.js test/create-agent.test.js test/agent-mutations.test.js` | Final focused run: 89 passed, 0 failed, 0 skipped; initial run: 88 passed, 1 assertion failed as explained above |
+| `client/` | `npm test` | 103 passed, 0 failed, 0 skipped, including existing integration checks with Redis enabled/unavailable |
+| `client/` | `npm run build` | Passed with Vite 8.3.4; 2,079 modules transformed |
+| Root | `node --check` on `requestErrors.js`, `requestResource.js`, `agentsResource.js`, and `request-feedback.test.js` | Passed |
+| Root | `git diff --check` | Passed |
+
+Seven new tests exercise initial/empty/cancelled states, retained refresh content, failed refresh and retry, query isolation, late completion after cancellation, actual HTTP timeout/network/HTML/503 failures on all read views, and actual timed-out create/update requests retaining drafts without duplicate writes. Existing not-found, input validation/phone, failure recovery, overlapping requests, StrictMode, and mutation tests still pass. Existing cancellation assertions now expect a settled cancelled state, and initial detail-loading assertions use an empty initial resource.
+
+Backend source, contracts, schemas, Redis behavior, validation, API URL settings, rewrites, hosting, packages, and lockfiles are unchanged. The standalone backend suite was not rerun because backend behavior was not changed; the full client suite includes frontend-to-Express integration checks. Browser DOM events, focus behavior, and viewport appearance were not manually inspected; render tests verify markup and direct resource tests exercise the request states. Live MongoDB/Redis and production first-load behavior remain unverified. `server/.env` was never read, printed, staged, or modified. Changes remain unstaged and uncommitted. Steps 27-30 remain PENDING, and Step 25's existing roadmap status is unchanged.
+
+Suggested commit after review: `fix: improve dashboard feedback and error states`

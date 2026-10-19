@@ -105,8 +105,8 @@ test('successful detail rendering shows all public fields with labelled, respons
   assert.doesNotMatch(inactive, /<script>/);
 });
 
-test('loading announces progress and hides prior details while keeping a return link', () => {
-  const html = render({ status: 'loading', data: { kind: 'found', agent: agent() } });
+test('initial loading announces progress without details and keeps a return link', () => {
+  const html = render({ status: 'loading', data: null });
   assert.match(html, /aria-busy="true"/);
   assert.match(html, /role="status"/);
   assert.match(html, /Loading agent details/);
@@ -160,7 +160,7 @@ test('retrying a missing agent performs a fresh GET and can recover without stal
   await resource.load();
   assert.equal(resource.getSnapshot().data.kind, 'not-found');
   missing = false;
-  const retry = resource.load();
+  const retry = resource.load({ keepData: false });
   assert.equal(resource.getSnapshot().data, null);
   await retry;
   assert.equal(resource.getSnapshot().data.kind, 'found');
@@ -206,7 +206,7 @@ test('overlapping detail retries ignore late results, and leaving a detail cance
   cancelled.cancel();
   leaving.reject(new Error('late private error'));
   await load;
-  assert.equal(cancelled.getSnapshot().status, 'loading');
+  assert.equal(cancelled.getSnapshot().status, 'cancelled');
 });
 
 test('separate route-ID resources isolate records even when the previous GET completes late', async () => {

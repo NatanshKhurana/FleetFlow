@@ -11,7 +11,9 @@ function AgentDetailRequest({ id, editing }) {
   const location = useLocation();
   const mounted = useRef(false);
   const [deletingAgent, setDeletingAgent] = useState(null);
-  const [resource] = useState(() => createRequestResource(({ signal }) => fetchAgentById(id, { signal })));
+  const [resource] = useState(() => createRequestResource(({ signal }) => fetchAgentById(id, { signal }), {
+    canRetainData: (data) => data?.kind === 'found',
+  }));
   const state = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
 
   useEffect(() => {
