@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import test from 'node:test';
 import { createServer } from 'vite';
 import configureVite from '../vite.config.js';
+
+test('Vercel preserves the Render API rewrite before the browser route fallback', async () => {
+  const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
+  assert.deepEqual(config.rewrites, [
+    { source: '/api/:path*', destination: 'https://fleetflow-api-2fq1.onrender.com/api/:path*' },
+    { source: '/(.*)', destination: '/index.html' },
+  ]);
+});
 
 test('local proxy defaults match the confirmed backend port for both dev and preview', () => {
   const previous = process.env.API_PROXY_TARGET;

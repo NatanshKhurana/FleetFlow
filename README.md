@@ -31,6 +31,7 @@ FleetFlow is a planned Delivery Agent Management System for creating, viewing, u
 - Step 23 is COMPLETE and committed as `9e1f9a6` (`feat: add agent details view`). Its verification results remain recorded below.
 - Step 24 is COMPLETE after 77 focused tests, all 91 frontend tests, the production build, syntax checks, and Git checks passed. Editing and confirmed deletion use the existing PATCH/DELETE contracts. Browser interactions and live persistence were not verified in this step; changes remain uncommitted for review.
 - Steps 25-30 are PENDING in `docs/STEP_PLAN.md`; their order, objectives, acceptance criteria, and suggested commits are preserved.
+- Step 25 now has automated frontend-to-Express integration coverage through the Vite proxy, with Redis enabled and unavailable. See the Step 25 verification section below for results and remaining live/browser checks. Roadmap statuses are preserved as requested.
 - The server exposes health, create-agent, list-agent, single-agent GET, PATCH, and DELETE endpoints with consistent JSON error responses. Successful deletion returns 204 with no body, as required by the roadmap.
 - Express, dotenv, Zod, Mongoose, and node-redis are the direct dependencies. The development script uses Node's built-in watch mode.
 - `client/` contains a responsive dashboard shell, API-backed overview, searchable/filtered/paginated Agents list, creation/edit forms, individual details, and delete confirmation with loading/not-found/error/retry handling. List and single-agent GET endpoints use optional Redis caching with a shared default 60-second TTL and invalidation after successful mutations. There is no authentication. Normal tests use mocked services; dedicated live cache expiry/invalidation checks remain unperformed.
@@ -196,9 +197,9 @@ The existing backend's normal local configuration uses port 5000, and the Vite p
 | `npm run dev` | Start Vite with development updates when files change |
 | `npm run build` | Compile the frontend into `client/dist/` for production |
 | `npm run preview` | Serve an existing production build locally, normally on port 4173; run build first |
-| `npm test` | Run 36 layout, agents, overview request/state/render, Axios HTTP, and Vite proxy tests using Node's built-in test runner |
+| `npm test` | Run 96 frontend tests, including frontend-to-Express integration (requires dependencies installed in both `client/` and `server/`) |
 
-`preview` is a local build check, not a production hosting service. Future hosting must serve `index.html` for browser-router page URLs such as `/agents`, `/agents/:id`, and `/agents/:id/edit`. Overview, Agents, Agent details/editing, and the unknown-page fallback share the dashboard shell. Creation is available on Agents; confirmed deletion is available from the table and detail page.
+`preview` is a local build check, not a production hosting service. The existing Vercel configuration serves `index.html` for browser-router page URLs such as `/agents`, `/agents/:id`, and `/agents/:id/edit`, after matching the API rewrite. Overview, Agents, Agent details/editing, and the unknown-page fallback share the dashboard shell. Creation is available on Agents; confirmed deletion is available from the table and detail page.
 
 ### Frontend configuration
 
@@ -213,7 +214,7 @@ If an existing `client/.env` still contains the earlier `API_PROXY_TARGET=http:/
 
 `src/lib/api.js` uses `axios.create()` to export one reusable HTTP client with a 10-second timeout. It reads `import.meta.env.VITE_API_BASE_URL`; missing/blank values now fall back to `/api`. Requests to `/agents` target `/api/agents` on the frontend origin. `vite.config.js` forwards `/api` unchanged to `API_PROXY_TARGET` during development and preview, defaulting to `http://localhost:5000`. The public proxy target is loaded from client configuration and is not a `VITE_*` browser variable. This follows [Vite's proxy configuration](https://vite.dev/config/server-options#server-proxy).
 
-If you copied the older client example, replace its `VITE_API_BASE_URL=http://localhost:5000/api` with `/api` and set the proxy target to the running backend's origin. Absolute API base URLs bypass Vite's proxy and require server-side CORS permission; the existing Express app does not enable cross-origin access. Production hosting must proxy `/api` to Express or use an explicitly configured API origin with appropriate CORS. The development/preview proxy is not included in `dist/`. Restart Vite after local environment changes; rebuild after changes to browser environment values.
+If you copied the older client example, replace its `VITE_API_BASE_URL=http://localhost:5000/api` with `/api` and set the proxy target to the running backend's origin. Absolute API base URLs bypass Vite's proxy and require server-side CORS permission; the existing Express app does not enable cross-origin access. The existing `client/vercel.json` forwards `/api/:path*` to `https://fleetflow-api-2fq1.onrender.com/api/:path*` before its SPA fallback. Keep the deployed frontend's public API base at `/api` (or unset to use that default), so browser requests use this same-origin rewrite. Vercel environment values override the build default; the deployed settings were not inspected in Step 25. The development/preview proxy is not included in `dist/`. Restart Vite after local environment changes; rebuild after changes to browser environment values.
 
 Vite loads client environment files automatically. **Every `VITE_*` value is public browser configuration** and can be included in built assets. Never copy server database/Redis URLs, passwords, or secret tokens into client environment files. The client does not load the private backend environment file. See [Vite environment documentation](https://vite.dev/guide/env-and-mode).
 
@@ -1452,3 +1453,39 @@ Verification performed for this correction:
 The new endpoint tests assert that rejected input never calls model write methods or invalidation. The shared CRUD flow additionally attempts an invalid creation and a multi-field update containing `phone: "abc"`, then checks the row count and unchanged saved record. That flow passes with fake Redis enabled and unavailable; existing successful invalidation assertions still pass. Mongoose tests cover accepted/rejected syntax without a database; frontend tests cover phone errors and blocked creation/edit submission. Persistence assertions use mocked in-memory storage, not a live MongoDB database. No live MongoDB/Redis integration or browser interaction was run. No private environment files were accessed, dependencies added, files staged, or commits created.
 
 Suggested commit: `fix: validate agent phone input across API and forms`
+
+## Step 25 Frontend–backend integration verification
+
+The existing implementation already connects all agent operations through the shared Axios client. No runtime integration defect was demonstrated, so this step adds verification rather than replacing working services or UI. Dashboard cards read full backend pagination totals, and recent registrations and table rows come from backend records. Counts are never derived from the visible page size or demo data.
+
+| Operation | Existing API contract |
+| --- | --- |
+| List and overview | `GET /api/agents` with `page`, `limit`, optional `search`, `status`, and `serviceArea` |
+| Create | `POST /api/agents`, HTTP 201 with the public agent |
+| Details | `GET /api/agents/:id`, HTTP 200 with the public agent |
+| Edit | `PATCH /api/agents/:id`, HTTP 200 with the updated public agent |
+| Delete | `DELETE /api/agents/:id`, HTTP 204 without a response body |
+
+The `:id` is the database record ID. Search is a case-insensitive literal substring; status and service area filters use exact matching and combine with search. Pagination uses backend matching totals. Local development retains the port-5000 proxy; production retains the existing Vercel `/api` rewrite to Render before the SPA fallback. No hosting, API, or environment configuration changed.
+
+`client/test/backend-integration.test.js` sends the actual frontend Axios requests through a running Vite proxy into the actual Express routes, validators, controllers, and cache services. Only MongoDB storage and the Redis client are simulated, using the existing test helpers. Two isolated runs cover Redis available and unavailable. Both verify seven creations with list refreshes, normalization, totals larger than the recent-agent limit, newest-first registrations, combined filters, literal search, pagination, detail loading, phone rejection, partial editing with a fresh detail GET, updated overview counts, cancelled deletion, confirmed deletion with a filtered list refresh, and subsequent detail 404. The enabled-cache run warms responses before mutations and checks fresh results and successful invalidations. `client/test/proxy.test.js` additionally protects the exact Render destination and rewrite order.
+
+Install dependencies in both packages with `npm ci` before running the frontend suite: this new integration test imports the backend app. No packages or lockfiles were changed. The test fixture disables unnecessary Vite dependency discovery; initial harness runs stalled and were interrupted before that adjustment. The final focused and full runs passed.
+
+Verification on October 19, 2026:
+
+| Directory | Command | Actual result |
+| --- | --- | --- |
+| `client/` | `node --test test/backend-integration.test.js test/proxy.test.js` | 5 passed, 0 failed, 0 skipped |
+| `client/` | `npm test` | 96 passed, 0 failed, 0 skipped |
+| `server/` | `npm test -- --test-concurrency=1` | 133 passed, 0 failed, 0 skipped |
+| `client/` | `npm run build` | Passed with Vite 8.3.4; 2,077 modules transformed |
+| Root | `node --check client/test/backend-integration.test.js` | Passed |
+| Root | `node --check client/test/proxy.test.js` | Passed |
+| Root | `git diff --check` | Passed |
+
+Existing phone-validation, cancellation/stale-response, CRUD, and Redis regressions continue passing. Runtime code, UI, private environment files, cache behavior, dependencies, and hosting configuration are unchanged. Roadmap statuses in `docs/STEP_PLAN.md` remain unchanged as requested; Steps 26–30 were not started.
+
+These checks verify the frontend service/state-to-Express integration locally. They do not execute browser clicks/navigation effects, verify real MongoDB persistence or Redis Cloud, inspect deployed Vercel environment values, or contact the deployed Render backend. Live/browser acceptance remains unverified, so this section records automated progress without marking the roadmap complete. No files were staged or committed.
+
+Suggested commit after review: `feat: integrate dashboard with agent APIs`
