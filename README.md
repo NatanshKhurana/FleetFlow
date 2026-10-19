@@ -16,6 +16,7 @@ This is an evaluation project with automated coverage, not a claim of production
 - [Deployment configuration](#deployment-configuration)
 - [Troubleshooting and limitations](#troubleshooting-and-limitations)
 - [Step 28 documentation verification](#step-28-documentation-verification)
+- [Step 29 technical audit](#step-29-technical-audit)
 - [Historical development record](#historical-development-record)
 
 ## Features and status
@@ -37,7 +38,8 @@ This is an evaluation project with automated coverage, not a claim of production
 | 25 | **PENDING**. Automated frontend-to-Express integration passes with mocked storage and Redis enabled/unavailable. Live MongoDB/Redis persistence and deployed-browser verification remain pending. |
 | 26–27 | COMPLETE. Feedback and automated coverage are implemented; Step 27 records 136 backend and 107 frontend tests passing. |
 | 28 | **COMPLETE**. Evaluator guide checked against source, examples/links audited, full test suites and production build rerun. |
-| 29–30 | **PENDING**; final verification/submission work has not begun. |
+| 29 | **COMPLETE**. Technical audit, cache regression fix, clean installs, full automated suites, build, syntax, and Git checks passed; see Step 29 below. |
+| 30 | **PENDING**; submission work has not begun. |
 
 The [step plan](docs/STEP_PLAN.md) is the authoritative roadmap. Before changing the project, follow [the development rules](docs/DEVELOPMENT_RULES.md). Historical sections retain the statuses and limitations recorded at that time; this guide describes the current implementation.
 
@@ -281,7 +283,7 @@ Frontend services validate public response shapes. Missing agents use separate f
 
 [agentListCache.js](server/src/services/agentListCache.js), [agentDetailCache.js](server/src/services/agentDetailCache.js), and [agentCacheState.js](server/src/services/agentCacheState.js) implement optional cache-aside reads:
 
-- Lists cache the complete public response/pagination together, including empty results. Keys contain a shared generation and a hash of normalized page/limit/search/status/service-area parameters; search text is not embedded in the key.
+- Lists cache the complete public response/pagination together, including empty results. Cached rows exceeding the page limit or the remaining matching total at the requested offset are rejected and refilled from MongoDB. Keys contain a shared generation and a hash of normalized page/limit/search/status/service-area parameters; search text is not embedded in the key.
 - Detail keys use lowercased record IDs. Entries include a generation and the public response. Invalid JSON/shapes/IDs/generations are misses, not trusted payloads.
 - Payloads expire using `AGENT_LIST_CACHE_TTL_SECONDS` (default 60 seconds). Hits do not extend TTL. Generation metadata has no payload TTL; obsolete list payloads expire naturally.
 - Only successful MongoDB mutations rotate the generation and delete the affected detail key. No collection-wide Redis scan/flush occurs. Invalid input, missing targets, and failed writes do not invalidate warm caches.
@@ -393,6 +395,42 @@ The documentation audits were temporary verification commands, not new project s
 Only `README.md` and `docs/STEP_PLAN.md` changed; runtime code, tests, lockfiles, environment examples, and hosting configuration are unchanged. No private environment file was inspected or modified. Step 25 remains PENDING for live/browser verification; Steps 29–30 remain PENDING. Nothing was staged, committed, or pushed.
 
 Suggested commit after review: `docs: complete project setup and API documentation`
+
+## Step 29 technical audit
+
+Step 29 is COMPLETE for the local technical-audit acceptance criteria. The audit started on clean `main` at `185d611` on October 19, 2026, using Node 24.19.0 and npm 11.7.0. Step 25 remains **PENDING** for live MongoDB/Redis persistence and deployed-browser verification; Step 30 remains **PENDING**.
+
+| Investigation | Evidence and outcome |
+| --- | --- |
+| Cached list pagination | Reproduced a valid-shaped cache hit returning a row with `total:0`, without querying MongoDB. The cache reader now rejects rows exceeding the remaining total at the page offset. A regression covers zero totals, pages beyond the last page, and an oversized final-page payload; each falls back to storage, repairs the entry with the existing TTL, and subsequently hits the repaired cache. Public API contracts, cache keys, TTLs, generation invalidation, and Redis fallback behavior are preserved. |
+| Retry-test deadline | The first full frontend run failed a healthy-retry assertion (106 passed, 1 failed); the unchanged feedback file passed alone (9 tests). Its fixture applied a 200 ms deadline to healthy responses as well as deliberate hangs. Only deliberate timeout modes now use 200 ms; other modes restore the existing 10-second client deadline, with explicit assertions. No production timeout or failure assertion was weakened. The cold parallel run is consistent with timing sensitivity, but the original failure did not record its error category. |
+| Frontend requests and CRUD | Reviewed routes, shared Axios/services, request/mutation resources, forms, phone validation, loading/empty/error/404 states, duplicate guards, cancellation, and stale responses. Existing automated CRUD and proxy checks passed with controlled storage and Redis enabled/unavailable. No additional runtime defect was demonstrated in these areas. |
+| Backend and configuration | Reviewed route/validation/error/model/startup behavior, cache races/invalidation/fallback, required configuration, health handling, and ordered Vercel/Vite routing. No additional reproducible defect warranted a change. Hosting and environment configuration remain unchanged. |
+| Production first-load report | No production request trace, live Render logs, or deployed browser session was available. Neither this cache defect nor Render cold starts are established as its cause. Capture sanitized request path/timing/status/content type and correlate backend startup/request logs before drawing a conclusion. |
+
+Verification performed after the fixes (all final runs exited zero, with no skipped or cancelled tests):
+
+| Directory/check | Exact command or method | Result |
+| --- | --- | --- |
+| `server/` | `npm ci` | 91 packages added, 92 audited, 0 reported vulnerabilities |
+| `client/` | `npm ci` | 67 packages added, 68 audited, 0 reported vulnerabilities |
+| `server/` | `node --test test/list-agents.test.js test/cache-invalidation.test.js test/cache-consistency.test.js test/crud-flow.test.js` | 45 passed, 0 failed, 0 skipped |
+| `client/` | `node --test test/request-feedback.test.js test/backend-integration.test.js test/proxy.test.js` | 16 passed, 0 failed, 0 skipped |
+| `server/` | `npm test -- --test-concurrency=1` | 137 passed, 0 failed, 0 skipped |
+| `client/` | `npm test` | 107 passed, 0 failed, 0 skipped |
+| `client/` | `npm run build` | Vite 8.3.4 passed; 2,079 modules transformed |
+| Repository root | `node --check` on each path from `git ls-files '*.js'` | All 61 JavaScript files passed; build also compiled JSX |
+| Static source audit | Resolve tracked relative JS/JSX imports without executing modules | 162 relative imports resolved |
+| Secret/ignore audit | Tracked filenames plus high-signal credential-pattern scan of 89 tracked source/document files; `git check-ignore --no-index --quiet` on private env/dependency/build paths | No tracked private-file candidates or credential-pattern candidates; private environment files, dependencies, and client build output are ignored. No real secret file was opened or modified. This limited scan is not a security certification. |
+| Documentation/Git | Local documentation links, historical/roadmap preservation, complete diff/scope review, `git diff --check`, `git diff --stat`, `git status --short` | Passed; only the five intended files changed; nothing staged |
+
+The new backend regression was first run before the runtime fix with `node --test test/list-agents.test.js`: 18 passed and 1 failed, reproducing the invalid cache hit. After the fix it passes in both focused and full suites. The feedback fixture retains real HTTP timeout/network/HTML/503 coverage, successful manual retries, and timed-out mutation draft/duplicate-submission assertions.
+
+Changed files: `server/src/services/agentListCache.js`, `server/test/list-agents.test.js`, `client/test/request-feedback.test.js`, `README.md`, and `docs/STEP_PLAN.md`. No dependencies, lockfiles, environment examples, hosting settings, API contracts, database schemas, or phone rules changed. Nothing was staged, committed, pushed, or deployed.
+
+Automated tests use controlled model storage and fake Redis; they do not prove live indexes/persistence, real cache expiry/invalidation, or deployed network behavior. Browser interaction, native dialog focus, viewport behavior, current Vercel/Render configuration/health, and live service scripts remain unverified. Existing nontransactional cache limitations above still apply; overview/list counts are separate database reads, not atomic snapshots. No additional unresolved defect was identified in the changed code. Step 30 was not started.
+
+Suggested commit after review: `fix: resolve final verification issues`
 
 ## Historical development record
 

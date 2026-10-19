@@ -36,9 +36,13 @@ export function createAgentListCache({ getClient = getRedisClient, logger = cons
       const parsed = cachedResponseSchema.safeParse(JSON.parse(text));
       if (!parsed.success) throw new Error('Invalid cached response');
       const { pagination, data } = parsed.data;
+      // Rows must fit the page size and the matching total remaining at this offset.
       if (pagination.page !== query.page || pagination.limit !== query.limit
         || pagination.totalPages !== Math.ceil(pagination.total / pagination.limit)
-        || data.length > pagination.limit) throw new Error('Invalid cached pagination');
+        || data.length > pagination.limit
+        || data.length > Math.max(0, pagination.total - (pagination.page - 1) * pagination.limit)) {
+        throw new Error('Invalid cached pagination');
+      }
       return { response: parsed.data, generation };
     } catch {
       logger.warn('Agent list cache read failed. Using MongoDB.');

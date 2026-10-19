@@ -290,6 +290,39 @@ test('malformed JSON, wrong payloads, internal fields, and mismatched pagination
   assert.doesNotMatch(JSON.stringify(logger.warn.mock.calls.map((call) => call.arguments)), /fake-private|__v|stack/);
 });
 
+test('cached rows cannot exceed the reported total or the remaining rows on a later page', async (t) => {
+  const redis = fakeRedis(t);
+  const { base, find, count } = await startTestServer(t, { cacheClient: redis, records: [sampleAgent()], total: 3 });
+  const cases = [
+    { page: 1, limit: 10, total: 0, rows: 1 },
+    { page: 2, limit: 1, total: 1, rows: 1 },
+    { page: 2, limit: 2, total: 3, rows: 2 },
+  ];
+  for (const { page, limit, total, rows } of cases) {
+    const query = { page, limit };
+    const suffix = '?' + new URLSearchParams(query);
+    const fresh = await (await get(base, suffix)).json();
+    const cached = { ...fresh,
+      data: Array.from({ length: rows }, (_, index) => ({ ...fresh.data[0],
+        id: (index + 1).toString(16).padStart(24, '0'), agentId: `CACHED-${index + 1}` })),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+    redis.prime(agentListCacheKey(query, redis.generation), JSON.stringify(cached));
+    const reads = find.mock.callCount();
+    const counts = count.mock.callCount();
+    const response = await get(base, suffix);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), fresh);
+    assert.equal(find.mock.callCount(), reads + 1);
+    assert.equal(count.mock.callCount(), counts + 1);
+    // The repaired entry must be usable on the next request, with the existing TTL.
+    assert.deepEqual(redis.set.mock.calls.at(-1).arguments[2], { expiration: { type: 'EX', value: 60 } });
+    assert.deepEqual(await (await get(base, suffix)).json(), fresh);
+    assert.equal(find.mock.callCount(), reads + 1);
+    assert.equal(count.mock.callCount(), counts + 1);
+  }
+});
+
 test('Redis read or write errors preserve successful MongoDB responses and hide internal details', async (t) => {
   for (const option of ['readError', 'writeError']) {
     const redis = fakeRedis(t, { [option]: true });

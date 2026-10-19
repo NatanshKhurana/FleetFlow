@@ -210,7 +210,11 @@ async function startFixture(t) {
   t.after(() => Object.assign(api.defaults, previous));
   api.defaults.baseURL = `http://127.0.0.1:${server.address().port}/api`;
   api.defaults.timeout = 200; // Test-only deadline; production remains 10 seconds.
-  return { calls, setMode(value) { mode = value; } };
+  return { calls, setMode(value) {
+    mode = value;
+    // Only deliberately stalled requests need the shortened test deadline.
+    api.defaults.timeout = value === 'timeout' ? 200 : previous.timeout;
+  } };
 }
 
 test('first-load timeout, network disconnect, HTML, and HTTP 503 become safe errors; manual retries recover', async (t) => {
@@ -221,6 +225,7 @@ test('first-load timeout, network disconnect, HTML, and HTTP 503 become safe err
     for (const [Component, read] of [[Overview, fetchOverview], [Agents, ({ signal }) => services.fetchAgents({}, { signal })],
       [Details, ({ signal }) => services.fetchAgentById(id, { signal })]]) {
       fixture.setMode(mode);
+      assert.equal(api.defaults.timeout, mode === 'timeout' ? 200 : 10000);
       const resource = createRequestResource(read);
       await resource.load();
       const failed = resource.getSnapshot();
@@ -235,6 +240,7 @@ test('first-load timeout, network disconnect, HTML, and HTTP 503 become safe err
       // Count dispatches: aborted siblings may still reach the HTTP server later.
       const requestsBeforeRetry = get.mock.callCount();
       fixture.setMode('success');
+      assert.equal(api.defaults.timeout, 10000);
       await resource.load();
       assert.equal(resource.getSnapshot().status, 'success');
       assert.equal(get.mock.callCount() - requestsBeforeRetry, Component === Overview ? 3 : 1);
